@@ -108,3 +108,5 @@ app.get('/', (_, res) => {
 app.listen(PORT, () => {
   console.log(`🌐 Express keepalive listening on port ${PORT}`);
 });
+const setupBroadcast = require('./commands/broadcast');
+setupBroadcast(bot, [190803350, 504104401]); // Developer IDs
