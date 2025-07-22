@@ -110,3 +110,20 @@ app.listen(PORT, () => {
 });
 const setupBroadcast = require('./commands/broadcast');
 setupBroadcast(bot, [190803350, 504104401]); // Developer IDs
+const fs = require('fs');
+const usersPath = './data/users.json';
+
+let knownUsers = [];
+try {
+  knownUsers = JSON.parse(fs.readFileSync(usersPath));
+} catch (e) {
+  knownUsers = [];
+}
+
+bot.on('message', msg => {
+  const chatId = msg.chat.id;
+  if (!knownUsers.includes(chatId)) {
+    knownUsers.push(chatId);
+    fs.writeFileSync(usersPath, JSON.stringify(knownUsers, null, 2));
+  }
+});
