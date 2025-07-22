@@ -38,3 +38,5 @@ module.exports = function setupBroadcast(bot, developerIds) {
     bot.sendMessage(senderId, `📤 Рассылка "${type}" отправлена ${recipients.length} пользователям`);
   });
 };
+console.log('broadcast requested by', msg.from.id);
+console.log('DEVELOPER_IDS =', developerIds);
