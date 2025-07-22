@@ -11,32 +11,37 @@ const broadcastTypes = {
 };
 
 module.exports = function setupBroadcast(bot, developerIds) {
-  bot.onText(/^\/broadcast (\w+)\s+(.+)/, (msg, match) => {
-    const senderId = msg.from.id;
-    if (!developerIds.includes(senderId)) return;
+  const usersPath = path.join(__dirname, '../data/users.json');
 
-    const type = match[1];
-    const text = match[2];
-    const prefix = broadcastTypes[type] || broadcastTypes.default;
+  bot.onText(/^\/broadcast\s+(\w+)\s+([\s\S]+)/, (msg, match) => {
+    const senderId = msg.from.id;
+    if (!developerIds.includes(senderId)) {
+      return bot.sendMessage(msg.chat.id, '❌ Нет доступа к этой команде');
+    }
+
+    const typeKey = match[1].toLowerCase();
+    const text = match[2].trim();
+    const prefix = broadcastTypes[typeKey] || broadcastTypes.default;
     const finalMessage = `${prefix}\n\n${text}`;
 
-    // читаем список пользователей
-    const usersPath = path.join(__dirname, '../data/users.json');
-    let recipients = [];
+    let recipients;
     try {
       recipients = JSON.parse(fs.readFileSync(usersPath));
     } catch (err) {
-      console.error('users.json not found or unreadable');
+      console.error('Ошибка чтения users.json:', err);
       return bot.sendMessage(senderId, '❌ Не удалось загрузить список получателей');
     }
 
     let sentCount = 0;
     recipients.forEach(chatId => {
-      bot.sendMessage(chatId, finalMessage).then(() => sentCount++);
+      bot.sendMessage(chatId, finalMessage)
+        .then(() => sentCount++)
+        .catch(console.error);
     });
 
-    bot.sendMessage(senderId, `📤 Рассылка "${type}" отправлена ${recipients.length} пользователям`);
+    bot.sendMessage(
+      senderId,
+      `📤 Рассылка "${typeKey}" отправлена ${sentCount} из ${recipients.length} пользователям`
+    );
   });
 };
-console.log('broadcast requested by', msg.from.id);
-console.log('DEVELOPER_IDS =', developerIds);
