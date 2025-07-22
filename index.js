@@ -1,129 +1,88 @@
-require('dotenv').config();
-const fs          = require('fs');
-const path        = require('path');
-const express     = require('express');
-const TelegramBot = require('node-telegram-bot-api');
-const { safeSend } = require('./utils/safeSend');
-const { getUserKeyboard, getAdminKeyboard } = require('./bot/menu');
-const { handleCallback, handleText }        = require('./bot/commands');
-
-const DEVELOPER_IDS = (process.env.DEVELOPER_IDS || '')
-  .split(',')
-  .map(id => Number(id.trim()));
-function isDev(chatId) {
-  return DEVELOPER_IDS.includes(chatId);
-}
-
-const bot       = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-const usersFile = path.join(__dirname, 'data', 'users.json');
-
-// /start
-bot.onText(/\/start/, msg => {
-  const chatId  = msg.chat.id;
-  const isAdmin = isDev(chatId);
-
-  // 🌄 приветствие картинкой
-  const imgPath = path.join(__dirname, 'assets', 'copilot_image.jpeg');
-  if (fs.existsSync(imgPath)) {
-    bot.sendPhoto(chatId, fs.createReadStream(imgPath), {
-      caption: '🗺️ *Genesis War Map*\nДобро пожаловать!',
-      parse_mode: 'Markdown'
-    });
-  } else {
-    safeSend(bot, chatId, '🗺️ *Genesis War Map Bot запущен!*');
-  }
-
-  // ⌨️ кнопки
-  const keyboard = isAdmin ? getAdminKeyboard() : getUserKeyboard();
-  safeSend(bot, chatId, 'Выберите действие 👇', { reply_markup: keyboard.reply_markup });
-
-  // 🌐 ссылка на карту
-  safeSend(bot, chatId, '🌐 Перейти на карту онлайн:', {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🔗 Открыть карту', url: 'https://metaboom4304.github.io/genesis-data/' }]
-      ]
-    }
-  });
-
-  // 🗂️ добавление в users.json
-  try {
-    const raw   = fs.existsSync(usersFile) ? fs.readFileSync(usersFile, 'utf-8').trim() : '';
-    const users = raw ? JSON.parse(raw).users : [];
-    if (!users.includes(chatId)) {
-      users.push(chatId);
-      fs.writeFileSync(usersFile, JSON.stringify({ users }, null, 2));
-    }
-  } catch (err) {
-    console.error('📁 Ошибка записи users.json:', err.message);
-  }
-});
-
-// 🧩 inline-кнопки
-bot.on('callback_query', q => handleCallback(bot, q));
-
-// ✉️ сообщения + рассылка
-bot.on('message', msg => {
-  const chatId  = msg.chat.id;
-  const replyTo = msg.reply_to_message?.text || '';
-
-  // ✏️ обработка ответа на рассылку
-  if (replyTo.includes('Введите текст для рассылки')) {
-    try {
-      const raw   = fs.readFileSync(usersFile, 'utf-8').trim();
-      const users = JSON.parse(raw).users || [];
-
-      users.forEach(uid => {
-        if (uid !== chatId) {
-          safeSend(bot, uid, `📢 Сообщение от админа:\n\n${msg.text}`);
-        }
-      });
-
-      safeSend(bot, chatId, '✅ Рассылка выполнена.');
-    } catch (err) {
-      console.error('📢 Ошибка рассылки:', err);
-      safeSend(bot, chatId, '❌ Ошибка при рассылке.');
-    }
-    return;
-  }
-
-  if (!msg.text || msg.text.startsWith('/start')) return;
-  handleText(bot, msg);
-});
-
-// ⏱️ Keepalive‑таймер + лог
-setInterval(() => {
-  const now = new Date().toISOString();
-  fs.appendFileSync('logs.txt', `🫀 Keepalive ping: ${now}\n`, 'utf-8');
-}, 60_000);
-
-// 🌐 Express‑сервер для UptimeRobot
-const app  = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (_, res) => {
-  res.send('🟢 Genesis Bot is running');
-});
-
-app.listen(PORT, () => {
-  console.log(`🌐 Express keepalive listening on port ${PORT}`);
-});
-const setupBroadcast = require('./commands/broadcast');
-setupBroadcast(bot, [190803350, 504104401]); // Developer IDs
+// index.js
+require('dotenv').config();              // Загрузка .env локально (необязательно на Railway)
 const fs = require('fs');
-const usersPath = './data/users.json';
+const path = require('path');
+const express = require('express');
+const TelegramBot = require('node-telegram-bot-api');
+const { BOT_TOKEN, DEVELOPER_IDS } = require('./config');
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 1) KEEPALIVE-СЕРВЕР (Express)
+// ──────────────────────────────────────────────────────────────────────────────
+const app = express();
+app.get('/', (_req, res) => res.send('✅ Genesis War Bot is up'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🟢 Keepalive listening on port ${PORT}`));
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 2) ИНИЦИАЛИЗАЦИЯ TELEGRAM БОТА
+// ──────────────────────────────────────────────────────────────────────────────
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 3) ПОДГОТОВКА users.json ДЛЯ РАССЫЛКИ
+// ──────────────────────────────────────────────────────────────────────────────
+const dataDir = path.resolve(__dirname, 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+
+const usersFile = path.join(dataDir, 'users.json');
 let knownUsers = [];
 try {
-  knownUsers = JSON.parse(fs.readFileSync(usersPath));
-} catch (e) {
+  knownUsers = JSON.parse(fs.readFileSync(usersFile));
+} catch {
   knownUsers = [];
+  fs.writeFileSync(usersFile, JSON.stringify(knownUsers, null, 2));
+  console.log('📂 Создан пустой data/users.json');
 }
 
-bot.on('message', msg => {
+// Автоматически логируем каждого, кто пишет боту
+bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   if (!knownUsers.includes(chatId)) {
     knownUsers.push(chatId);
-    fs.writeFileSync(usersPath, JSON.stringify(knownUsers, null, 2));
+    fs.writeFileSync(usersFile, JSON.stringify(knownUsers, null, 2));
+    console.log(`➕ New user added: ${chatId}`);
   }
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 4) ПОДКЛЮЧЕНИЕ КОМАНД
+// ──────────────────────────────────────────────────────────────────────────────
+// команда рассылки с типами
+require('./commands/broadcast')(bot, DEVELOPER_IDS);
+
+// Пример простых команд
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(
+    msg.chat.id,
+    '👋 Добро пожаловать в Genesis War Bot! Напиши /help для списка команд.'
+  );
+});
+
+bot.onText(/\/status/, (msg) => {
+  const up = Math.floor(process.uptime());
+  bot.sendMessage(
+    msg.chat.id,
+    `⏱ Uptime: ${up}s\n👤 Ваш ID: ${msg.chat.id}`
+  );
+});
+
+bot.onText(/\/help/, (msg) => {
+  const helpText = `
+Список команд:
+/start               — Приветствие
+/status              — Статус бота и ваш ID
+/broadcast <type> <text> — Рассылка (доступно только разработчикам)
+/help                — Эта справка
+
+Типы для /broadcast:
+• important — ❗ Важное
+• tech      — 🛠 Техобновление
+• info      — ℹ Информация
+• warn      — ⚠️ Предупреждение
+• любой другой — 📢 Объявление
+`;
+  bot.sendMessage(msg.chat.id, helpText);
+});
+
+console.log('✅ Genesis War Bot запущен в режиме polling');
