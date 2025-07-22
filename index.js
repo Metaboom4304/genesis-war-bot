@@ -85,4 +85,10 @@ bot.onText(/\/help/, (msg) => {
   bot.sendMessage(msg.chat.id, helpText);
 });
 
+bot.getMe().then(me => {
+  console.log('🤖 Бот подключён как:', me.username, me.id);
+}).catch(err => {
+  console.error('❌ Ошибка Telegram getMe:', err);
+});
+
 console.log('✅ Genesis War Bot запущен в режиме polling');
