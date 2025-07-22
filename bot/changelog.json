@@ -1,0 +1,25 @@
+const fs = require('fs');
+
+function getChangelogText() {
+  try {
+    const raw = fs.readFileSync('./data/changelog.json', 'utf-8');
+    const changelog = JSON.parse(raw);
+
+    let result = '📜 *Changelog:*\n\n';
+
+    for (const version in changelog) {
+      const entry = changelog[version];
+      result += `*v${version}* (${entry.date})\n`;
+      entry.changes.forEach((line) => {
+        result += `- ${line}\n`;
+      });
+      result += '\n';
+    }
+
+    return result;
+  } catch (e) {
+    return '❌ Changelog не доступен.';
+  }
+}
+
+module.exports = { getChangelogText };

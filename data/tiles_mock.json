@@ -1,0 +1,17 @@
+{
+  "542": {
+    "label": "Iron Mine",
+    "rarity": "legendary",
+    "status": "active"
+  },
+  "1033": {
+    "label": "Gold Field",
+    "rarity": "rare",
+    "status": "inactive"
+  },
+  "777": {
+    "label": "Crystal Vault",
+    "rarity": "epic",
+    "status": "active"
+  }
+}

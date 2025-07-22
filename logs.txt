@@ -1,0 +1,1046 @@
+joinDuplicateHeaders: undefined,
+  path: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+  _ended: true,
+  res: [Circular *8],
+  aborted: false,
+  timeoutCb: null,
+  upgradeOrConnect: false,
+  parser: null,
+  maxHeadersCount: null,
+  reusedSocket: true,
+  host: 'api.telegram.org',
+  protocol: 'https:',
+  [Symbol(shapeMode)]: false,
+  [Symbol(kCapture)]: false,
+  [Symbol(kBytesWritten)]: 0,
+  [Symbol(kNeedDrain)]: false,
+  [Symbol(corked)]: 0,
+  [Symbol(kChunkedBuffer)]: [],
+  [Symbol(kChunkedLength)]: 0,
+  [Symbol(kSocket)]: <ref *1> TLSSocket {
+    _tlsOptions: {
+      allowHalfOpen: undefined,
+      pipe: false,
+      secureContext: SecureContext { context: SecureContext {} },
+      isServer: false,
+      requestCert: true,
+      rejectUnauthorized: true,
+      session: undefined,
+      ALPNProtocols: undefined,
+      requestOCSP: undefined,
+      enableTrace: undefined,
+      pskCallback: undefined,
+      highWaterMark: undefined,
+      onread: undefined,
+      signal: undefined
+    },
+    _secureEstablished: true,
+    _securePending: false,
+    _newSessionPending: false,
+    _controlReleased: true,
+    secureConnecting: false,
+    _SNICallback: null,
+    servername: 'api.telegram.org',
+    alpnProtocol: false,
+    authorized: true,
+    authorizationError: null,
+    encrypted: true,
+    _events: [Object: null prototype] {
+      close: [
+        [Function: onSocketCloseDestroySSL],
+        [Function],
+        [Function: onClose]
+      ],
+      end: [Function: onReadableStreamEnd],
+      error: [Function: bound onceWrapper] {
+        listener: [Function: freeSocketErrorListener]
+      },
+      newListener: [Function: keylogNewListener],
+      connect: undefined,
+      secure: [Function: onConnectSecure],
+      session: [Function (anonymous)],
+      free: [Function: onFree],
+      timeout: [Function: onTimeout],
+      agentRemove: [Function: onRemove],
+      data: undefined,
+      drain: undefined
+    },
+    _eventsCount: 9,
+    connecting: false,
+    _hadError: false,
+    _parent: null,
+    _host: 'api.telegram.org',
+    _closeAfterHandlingError: false,
+    _readableState: ReadableState {
+      highWaterMark: 65536,
+      buffer: [],
+      bufferIndex: 0,
+      length: 0,
+      pipes: [],
+      awaitDrainWriters: null,
+      [Symbol(kState)]: 60303620
+    },
+    _writableState: WritableState {
+      highWaterMark: 65536,
+      length: 0,
+      corked: 0,
+      onwrite: [Function: bound onwrite],
+      writelen: 0,
+      bufferedIndex: 0,
+      pendingcb: 0,
+      [Symbol(kState)]: 17563908,
+      [Symbol(kBufferedValue)]: null,
+      [Symbol(kWriteCbValue)]: null
+    },
+    allowHalfOpen: false,
+    _maxListeners: undefined,
+    _sockname: null,
+    _pendingData: null,
+    _pendingEncoding: '',
+    server: undefined,
+    _server: null,
+    ssl: <ref *2> TLSWrap {
+      _parent: TCP {
+        reading: [Getter/Setter],
+        onconnection: null,
+        [Symbol(owner_symbol)]: [Circular *1]
+      },
+      _parentWrap: null,
+      _secureContext: SecureContext { context: SecureContext {} },
+      reading: true,
+      onkeylog: [Function: onkeylog],
+      onhandshakestart: [Function: noop],
+      onhandshakedone: [Function (anonymous)],
+      onocspresponse: [Function: onocspresponse],
+      onnewsession: [Function: onnewsessionclient],
+      onerror: [Function: onerror],
+      [Symbol(owner_symbol)]: [Circular *1],
+      [Symbol(resource_symbol)]: ReusedHandle { type: 61, handle: [Circular *2] }
+    },
+    _requestCert: true,
+    _rejectUnauthorized: true,
+    parser: null,
+    _httpMessage: null,
+    timeout: 0,
+    [Symbol(alpncallback)]: null,
+    [Symbol(res)]: <ref *2> TLSWrap {
+      _parent: TCP {
+        reading: [Getter/Setter],
+        onconnection: null,
+        [Symbol(owner_symbol)]: [Circular *1]
+      },
+      _parentWrap: null,
+      _secureContext: SecureContext { context: SecureContext {} },
+      reading: true,
+      onkeylog: [Function: onkeylog],
+      onhandshakestart: [Function: noop],
+      onhandshakedone: [Function (anonymous)],
+      onocspresponse: [Function: onocspresponse],
+      onnewsession: [Function: onnewsessionclient],
+      onerror: [Function: onerror],
+      [Symbol(owner_symbol)]: [Circular *1],
+      [Symbol(resource_symbol)]: ReusedHandle { type: 61, handle: [Circular *2] }
+    },
+    [Symbol(verified)]: true,
+    [Symbol(pendingSession)]: null,
+    [Symbol(async_id_symbol)]: -1,
+    [Symbol(kHandle)]: <ref *2> TLSWrap {
+      _parent: TCP {
+        reading: [Getter/Setter],
+        onconnection: null,
+        [Symbol(owner_symbol)]: [Circular *1]
+      },
+      _parentWrap: null,
+      _secureContext: SecureContext { context: SecureContext {} },
+      reading: true,
+      onkeylog: [Function: onkeylog],
+      onhandshakestart: [Function: noop],
+      onhandshakedone: [Function (anonymous)],
+      onocspresponse: [Function: onocspresponse],
+      onnewsession: [Function: onnewsessionclient],
+      onerror: [Function: onerror],
+      [Symbol(owner_symbol)]: [Circular *1],
+      [Symbol(resource_symbol)]: ReusedHandle { type: 61, handle: [Circular *2] }
+    },
+    [Symbol(lastWriteQueueSize)]: 0,
+    [Symbol(timeout)]: null,
+    [Symbol(kBuffer)]: null,
+    [Symbol(kBufferCb)]: null,
+    [Symbol(kBufferGen)]: null,
+    [Symbol(shapeMode)]: true,
+    [Symbol(kCapture)]: false,
+    [Symbol(kSetNoDelay)]: false,
+    [Symbol(kSetKeepAlive)]: true,
+    [Symbol(kSetKeepAliveInitialDelay)]: 1,
+    [Symbol(kBytesRead)]: 0,
+    [Symbol(kBytesWritten)]: 0,
+    [Symbol(connect-options)]: {
+      rejectUnauthorized: true,
+      ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA384:ECDHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA256:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA',
+      checkServerIdentity: [Function: checkServerIdentity],
+      minDHSize: 1024,
+      _events: [Object: null prototype] {
+        error: [Function: bound ],
+        complete: [Function: bound ],
+        pipe: [Function (anonymous)],
+        data: [Function (anonymous)],
+        end: [Function (anonymous)]
+      },
+      _eventsCount: 3,
+      _maxListeners: undefined,
+      method: 'POST',
+      simple: false,
+      resolveWithFullResponse: true,
+      forever: true,
+      readable: true,
+      writable: true,
+      explicitMethod: true,
+      _qs: <ref *3> Querystring {
+        request: [Request],
+        lib: [Object],
+        useQuerystring: undefined,
+        parseOptions: {},
+        stringifyOptions: {}
+      },
+      _auth: <ref *4> Auth {
+        request: [Request],
+        hasAuth: false,
+        sentAuth: false,
+        bearerToken: null,
+        user: null,
+        pass: null
+      },
+      _multipart: <ref *5> Multipart {
+        request: [Request],
+        boundary: '46c5b011-9f45-454a-92bc-b2b23263b0c6',
+        chunked: false,
+        body: null
+      },
+      _redirect: <ref *6> Redirect {
+        request: [Request],
+        followRedirect: true,
+        followRedirects: true,
+        followAllRedirects: false,
+        followOriginalHttpMethod: false,
+        allowRedirect: [Function (anonymous)],
+        maxRedirects: 10,
+        redirects: [],
+        redirectsFollowed: 0,
+        removeRefererHeader: false,
+        allowInsecureRedirect: false
+      },
+      _tunnel: <ref *7> Tunnel {
+        request: [Request],
+        proxyHeaderWhiteList: [Array],
+        proxyHeaderExclusiveList: []
+      },
+      _rp_resolve: [Function (anonymous)],
+      _rp_reject: [Function (anonymous)],
+      _rp_promise: Promise [Object] {
+        _bitField: 33554432,
+        _fulfillmentHandler0: [Function (anonymous)],
+        _rejectionHandler0: [IncomingMessage],
+        _promise0: undefined,
+        _receiver0: undefined,
+        _onCancelField: undefined,
+        _branchesRemainingToCancel: 1,
+        _cancellationParent: undefined
+      },
+      _rp_callbackOrig: undefined,
+      callback: [Function (anonymous)],
+      _rp_options: {
+        form: [Object],
+        method: 'POST',
+        url: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates',
+        simple: false,
+        resolveWithFullResponse: true,
+        forever: true,
+        callback: [Function: RP$callback],
+        transform: undefined,
+        transform2xxOnly: false
+      },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'content-length': 19
+      },
+      setHeader: [Function (anonymous)],
+      hasHeader: [Function (anonymous)],
+      getHeader: [Function (anonymous)],
+      removeHeader: [Function (anonymous)],
+      localAddress: undefined,
+      pool: { 'https:': [Agent] },
+      dests: [],
+      __isRequestRequest: true,
+      _callback: [Function: RP$callback],
+      uri: Url {
+        protocol: 'https:',
+        slashes: true,
+        auth: null,
+        host: 'api.telegram.org',
+        port: 443,
+        hostname: 'api.telegram.org',
+        hash: null,
+        search: null,
+        query: null,
+        pathname: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates',
+        path: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates',
+        href: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates'
+      },
+      proxy: null,
+      tunnel: true,
+      setHost: true,
+      originalCookieHeader: undefined,
+      _disableCookies: true,
+      _jar: undefined,
+      port: 443,
+      host: 'api.telegram.org',
+      body: 'offset=0&timeout=10',
+      path: null,
+      httpModule: {
+        Agent: [Function: Agent],
+        globalAgent: [Agent],
+        Server: [Function: Server],
+        createServer: [Function: createServer],
+        get: [Function: get],
+        request: [Function: request]
+      },
+      agentClass: [Function: Agent],
+      agentOptions: { keepAlive: true },
+      agent: Agent {
+        _events: [Object: null prototype],
+        _eventsCount: 2,
+        _maxListeners: undefined,
+        defaultPort: 443,
+        protocol: 'https:',
+        options: [Object: null prototype],
+        requests: [Object: null prototype] {},
+        sockets: [Object: null prototype],
+        freeSockets: [Object: null prototype],
+        keepAliveMsecs: 1000,
+        keepAlive: true,
+        maxSockets: Infinity,
+        maxFreeSockets: 256,
+        scheduling: 'lifo',
+        maxTotalSockets: Infinity,
+        totalSocketCount: 10,
+        maxCachedSessions: 100,
+        _sessionCache: [Object],
+        [Symbol(shapeMode)]: false,
+        [Symbol(kCapture)]: false
+      },
+      _started: true,
+      href: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates',
+      _defaultAgent: Agent {
+        _events: [Object: null prototype],
+        _eventsCount: 2,
+        _maxListeners: undefined,
+        defaultPort: 443,
+        protocol: 'https:',
+        options: [Object: null prototype],
+        requests: [Object: null prototype] {},
+        sockets: [Object: null prototype] {},
+        freeSockets: [Object: null prototype] {},
+        keepAliveMsecs: 1000,
+        keepAlive: true,
+        maxSockets: Infinity,
+        maxFreeSockets: 256,
+        scheduling: 'lifo',
+        maxTotalSockets: Infinity,
+        totalSocketCount: 0,
+        maxCachedSessions: 100,
+        _sessionCache: [Object],
+        [Symbol(shapeMode)]: false,
+        [Symbol(kCapture)]: false
+      },
+      keepAlive: true,
+      noDelay: true,
+      servername: 'api.telegram.org',
+      _agentKey: 'api.telegram.org:443:::::::::::::::::::::',
+      encoding: null,
+      keepAliveInitialDelay: 1000
+    }
+  },
+  [Symbol(kOutHeaders)]: [Object: null prototype] {
+    host: [ 'host', 'api.telegram.org' ],
+    'content-type': [ 'content-type', 'application/x-www-form-urlencoded' ],
+    'content-length': [ 'content-length', 276 ]
+  },
+  [Symbol(errored)]: null,
+  [Symbol(kHighWaterMark)]: 65536,
+  [Symbol(kRejectNonStandardBodyWrites)]: false,
+  [Symbol(kUniqueHeaders)]: null
+},
+_eventsCount: 4,
+request: <ref *9> Request {
+  _events: [Object: null prototype] {
+    error: [Function: bound ],
+    complete: [Function: bound ],
+    pipe: [Function (anonymous)],
+    data: [Function (anonymous)],
+    end: [Function (anonymous)]
+  },
+  _eventsCount: 5,
+  _maxListeners: undefined,
+  method: 'POST',
+  simple: false,
+  resolveWithFullResponse: true,
+  forever: true,
+  readable: true,
+  writable: true,
+  explicitMethod: true,
+  _qs: Querystring {
+    request: [Circular *9],
+    lib: {
+      formats: {
+        default: 'RFC3986',
+        formatters: [Object],
+        RFC1738: 'RFC1738',
+        RFC3986: 'RFC3986'
+      },
+      parse: [Function (anonymous)],
+      stringify: [Function (anonymous)]
+    },
+    useQuerystring: undefined,
+    parseOptions: {},
+    stringifyOptions: {}
+  },
+  _auth: Auth {
+    request: [Circular *9],
+    hasAuth: false,
+    sentAuth: false,
+    bearerToken: null,
+    user: null,
+    pass: null
+  },
+  _multipart: Multipart {
+    request: [Circular *9],
+    boundary: 'ca73dd1e-d79a-4413-98a1-8bd8dcd3338f',
+    chunked: false,
+    body: null
+  },
+  _redirect: Redirect {
+    request: [Circular *9],
+    followRedirect: true,
+    followRedirects: true,
+    followAllRedirects: false,
+    followOriginalHttpMethod: false,
+    allowRedirect: [Function (anonymous)],
+    maxRedirects: 10,
+    redirects: [],
+    redirectsFollowed: 0,
+    removeRefererHeader: false,
+    allowInsecureRedirect: false
+  },
+  _tunnel: Tunnel {
+    request: [Circular *9],
+    proxyHeaderWhiteList: [
+      'accept',           'accept-charset',
+      'accept-encoding',  'accept-language',
+      'accept-ranges',    'cache-control',
+      'content-encoding', 'content-language',
+      'content-location', 'content-md5',
+      'content-range',    'content-type',
+      'connection',       'date',
+      'expect',           'max-forwards',
+      'pragma',           'referer',
+      'te',               'user-agent',
+      'via'
+    ],
+    proxyHeaderExclusiveList: []
+  },
+  _rp_resolve: [Function (anonymous)],
+  _rp_reject: [Function (anonymous)],
+  _rp_promise: Promise [Object] {
+    _bitField: 33554432,
+    _fulfillmentHandler0: [Function (anonymous)],
+    _rejectionHandler0: [Circular *8],
+    _promise0: undefined,
+    _receiver0: undefined,
+    _onCancelField: undefined,
+    _branchesRemainingToCancel: 1,
+    _cancellationParent: undefined
+  },
+  _rp_callbackOrig: undefined,
+  callback: [Function (anonymous)],
+  _rp_options: {
+    form: {
+      parse_mode: 'Markdown',
+      chat_id: 190803350,
+      text: '📂 *Управление тайлами*\n' +
+        '— /add_tile {JSON}\n' +
+        '— /remove_tile {ID}\n' +
+        '— /list_tiles'
+    },
+    method: 'POST',
+    url: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+    simple: false,
+    resolveWithFullResponse: true,
+    forever: true,
+    callback: [Function: RP$callback],
+    transform: undefined,
+    transform2xxOnly: false
+  },
+  headers: {
+    'content-type': 'application/x-www-form-urlencoded',
+    'content-length': 276
+  },
+  setHeader: [Function (anonymous)],
+  hasHeader: [Function (anonymous)],
+  getHeader: [Function (anonymous)],
+  removeHeader: [Function (anonymous)],
+  localAddress: undefined,
+  pool: {
+    'https:': Agent {
+      _events: [Object: null prototype] {
+        free: [Function (anonymous)],
+        newListener: [Function: maybeEnableKeylog]
+      },
+      _eventsCount: 2,
+      _maxListeners: undefined,
+      defaultPort: 443,
+      protocol: 'https:',
+      options: [Object: null prototype] {
+        keepAlive: true,
+        noDelay: true,
+        path: null
+      },
+      requests: [Object: null prototype] {},
+      sockets: [Object: null prototype] {
+        'api.telegram.org:443:::::::::::::::::::::': [Array]
+      },
+      freeSockets: [Object: null prototype] {
+        'api.telegram.org:443:::::::::::::::::::::': [Array]
+      },
+      keepAliveMsecs: 1000,
+      keepAlive: true,
+      maxSockets: Infinity,
+      maxFreeSockets: 256,
+      scheduling: 'lifo',
+      maxTotalSockets: Infinity,
+      totalSocketCount: 10,
+      maxCachedSessions: 100,
+      _sessionCache: { map: [Object], list: [Array] },
+      [Symbol(shapeMode)]: false,
+      [Symbol(kCapture)]: false
+    }
+  },
+  dests: [],
+  __isRequestRequest: true,
+  _callback: [Function: RP$callback],
+  uri: Url {
+    protocol: 'https:',
+    slashes: true,
+    auth: null,
+    host: 'api.telegram.org',
+    port: 443,
+    hostname: 'api.telegram.org',
+    hash: null,
+    search: null,
+    query: null,
+    pathname: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+    path: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+    href: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage'
+  },
+  proxy: null,
+  tunnel: true,
+  setHost: true,
+  originalCookieHeader: undefined,
+  _disableCookies: true,
+  _jar: undefined,
+  port: 443,
+  host: 'api.telegram.org',
+  body: 'parse_mode=Markdown&chat_id=190803350&text=%F0%9F%93%82%20%2A%D0%A3%D0%BF%D1%80%D0%B0%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%82%D0%B0%D0%B9%D0%BB%D0%B0%D0%BC%D0%B8%2A%0A%E2%80%94%20%2Fadd_tile%20%7BJSON%7D%0A%E2%80%94%20%2Fremove_tile%20%7BID%7D%0A%E2%80%94%20%2Flist_tiles',
+  path: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+  httpModule: {
+    Agent: [Function: Agent],
+    globalAgent: Agent {
+      _events: [Object: null prototype] {
+        free: [Function (anonymous)],
+        newListener: [Function: maybeEnableKeylog]
+      },
+      _eventsCount: 2,
+      _maxListeners: undefined,
+      defaultPort: 443,
+      protocol: 'https:',
+      options: [Object: null prototype] {
+        keepAlive: true,
+        scheduling: 'lifo',
+        timeout: 5000,
+        noDelay: true,
+        path: null
+      },
+      requests: [Object: null prototype] {},
+      sockets: [Object: null prototype] {},
+      freeSockets: [Object: null prototype] {},
+      keepAliveMsecs: 1000,
+      keepAlive: true,
+      maxSockets: Infinity,
+      maxFreeSockets: 256,
+      scheduling: 'lifo',
+      maxTotalSockets: Infinity,
+      totalSocketCount: 0,
+      maxCachedSessions: 100,
+      _sessionCache: { map: {}, list: [] },
+      [Symbol(shapeMode)]: false,
+      [Symbol(kCapture)]: false
+    },
+    Server: [Function: Server],
+    createServer: [Function: createServer],
+    get: [Function: get],
+    request: [Function: request]
+  },
+  agentClass: [Function: Agent],
+  agentOptions: { keepAlive: true },
+  agent: Agent {
+    _events: [Object: null prototype] {
+      free: [Function (anonymous)],
+      newListener: [Function: maybeEnableKeylog]
+    },
+    _eventsCount: 2,
+    _maxListeners: undefined,
+    defaultPort: 443,
+    protocol: 'https:',
+    options: [Object: null prototype] {
+      keepAlive: true,
+      noDelay: true,
+      path: null
+    },
+    requests: [Object: null prototype] {},
+    sockets: [Object: null prototype] {
+      'api.telegram.org:443:::::::::::::::::::::': [
+        [TLSSocket], [TLSSocket],
+        [TLSSocket], [TLSSocket],
+        [TLSSocket], [TLSSocket],
+        [TLSSocket], [TLSSocket],
+        [TLSSocket]
+      ]
+    },
+    freeSockets: [Object: null prototype] {
+      'api.telegram.org:443:::::::::::::::::::::': [ [TLSSocket] ]
+    },
+    keepAliveMsecs: 1000,
+    keepAlive: true,
+    maxSockets: Infinity,
+    maxFreeSockets: 256,
+    scheduling: 'lifo',
+    maxTotalSockets: Infinity,
+    totalSocketCount: 10,
+    maxCachedSessions: 100,
+    _sessionCache: {
+      map: {
+        'api.telegram.org:443:::::::::::::::::::::': [Buffer [Uint8Array]]
+      },
+      list: [ 'api.telegram.org:443:::::::::::::::::::::' ]
+    },
+    [Symbol(shapeMode)]: false,
+    [Symbol(kCapture)]: false
+  },
+  _started: true,
+  href: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+  req: ClientRequest {
+    _events: [Object: null prototype] {
+      response: [Function: bound ],
+      error: [Function: bound ],
+      drain: [Function (anonymous)],
+      socket: [Function (anonymous)],
+      finish: [Function: requestOnFinish]
+    },
+    _eventsCount: 5,
+    _maxListeners: undefined,
+    outputData: [],
+    outputSize: 0,
+    writable: true,
+    destroyed: true,
+    _last: false,
+    chunkedEncoding: false,
+    shouldKeepAlive: true,
+    maxRequestsOnConnectionReached: false,
+    _defaultKeepAlive: true,
+    useChunkedEncodingByDefault: true,
+    sendDate: false,
+    _removedConnection: false,
+    _removedContLen: false,
+    _removedTE: false,
+    strictContentLength: false,
+    _contentLength: 276,
+    _hasBody: true,
+    _trailer: '',
+    finished: true,
+    _headerSent: true,
+    _closed: true,
+    _header: 'POST /bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage HTTP/1.1\r\n' +
+      'host: api.telegram.org\r\n' +
+      'content-type: application/x-www-form-urlencoded\r\n' +
+      'content-length: 276\r\n' +
+      'Connection: keep-alive\r\n' +
+      '\r\n',
+    _keepAliveTimeout: 0,
+    _onPendingData: [Function: nop],
+    agent: Agent {
+      _events: [Object: null prototype] {
+        free: [Function (anonymous)],
+        newListener: [Function: maybeEnableKeylog]
+      },
+      _eventsCount: 2,
+      _maxListeners: undefined,
+      defaultPort: 443,
+      protocol: 'https:',
+      options: [Object: null prototype] {
+        keepAlive: true,
+        noDelay: true,
+        path: null
+      },
+      requests: [Object: null prototype] {},
+      sockets: [Object: null prototype] {
+        'api.telegram.org:443:::::::::::::::::::::': [Array]
+      },
+      freeSockets: [Object: null prototype] {
+        'api.telegram.org:443:::::::::::::::::::::': [Array]
+      },
+      keepAliveMsecs: 1000,
+      keepAlive: true,
+      maxSockets: Infinity,
+      maxFreeSockets: 256,
+      scheduling: 'lifo',
+      maxTotalSockets: Infinity,
+      totalSocketCount: 10,
+      maxCachedSessions: 100,
+      _sessionCache: { map: [Object], list: [Array] },
+      [Symbol(shapeMode)]: false,
+      [Symbol(kCapture)]: false
+    },
+    socketPath: undefined,
+    method: 'POST',
+    maxHeaderSize: undefined,
+    insecureHTTPParser: undefined,
+    joinDuplicateHeaders: undefined,
+    path: '/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/sendMessage',
+    _ended: true,
+    res: [Circular *8],
+    aborted: false,
+    timeoutCb: null,
+    upgradeOrConnect: false,
+    parser: null,
+    maxHeadersCount: null,
+    reusedSocket: true,
+    host: 'api.telegram.org',
+    protocol: 'https:',
+    [Symbol(shapeMode)]: false,
+    [Symbol(kCapture)]: false,
+    [Symbol(kBytesWritten)]: 0,
+    [Symbol(kNeedDrain)]: false,
+    [Symbol(corked)]: 0,
+    [Symbol(kChunkedBuffer)]: [],
+    [Symbol(kChunkedLength)]: 0,
+    [Symbol(kSocket)]: <ref *1> TLSSocket {
+      _tlsOptions: {
+        allowHalfOpen: undefined,
+        pipe: false,
+        secureContext: [SecureContext],
+        isServer: false,
+        requestCert: true,
+        rejectUnauthorized: true,
+        session: undefined,
+        ALPNProtocols: undefined,
+        requestOCSP: undefined,
+        enableTrace: undefined,
+        pskCallback: undefined,
+        highWaterMark: undefined,
+        onread: undefined,
+        signal: undefined
+      },
+      _secureEstablished: true,
+      _securePending: false,
+      _newSessionPending: false,
+      _controlReleased: true,
+      secureConnecting: false,
+      _SNICallback: null,
+      servername: 'api.telegram.org',
+      alpnProtocol: false,
+      authorized: true,
+      authorizationError: null,
+      encrypted: true,
+      _events: [Object: null prototype] {
+        close: [Array],
+        end: [Function: onReadableStreamEnd],
+        error: [Function],
+        newListener: [Function: keylogNewListener],
+        connect: undefined,
+        secure: [Function: onConnectSecure],
+        session: [Function (anonymous)],
+        free: [Function: onFree],
+        timeout: [Function: onTimeout],
+        agentRemove: [Function: onRemove],
+        data: undefined,
+        drain: undefined
+      },
+      _eventsCount: 9,
+      connecting: false,
+      _hadError: false,
+      _parent: null,
+      _host: 'api.telegram.org',
+      _closeAfterHandlingError: false,
+      _readableState: ReadableState {
+        highWaterMark: 65536,
+        buffer: [],
+        bufferIndex: 0,
+        length: 0,
+        pipes: [],
+        awaitDrainWriters: null,
+        [Symbol(kState)]: 60303620
+      },
+      _writableState: WritableState {
+        highWaterMark: 65536,
+        length: 0,
+        corked: 0,
+        onwrite: [Function: bound onwrite],
+        writelen: 0,
+        bufferedIndex: 0,
+        pendingcb: 0,
+        [Symbol(kState)]: 17563908,
+        [Symbol(kBufferedValue)]: null,
+        [Symbol(kWriteCbValue)]: null
+      },
+      allowHalfOpen: false,
+      _maxListeners: undefined,
+      _sockname: null,
+      _pendingData: null,
+      _pendingEncoding: '',
+      server: undefined,
+      _server: null,
+      ssl: <ref *2> TLSWrap {
+        _parent: [TCP],
+        _parentWrap: null,
+        _secureContext: [SecureContext],
+        reading: true,
+        onkeylog: [Function: onkeylog],
+        onhandshakestart: [Function: noop],
+        onhandshakedone: [Function (anonymous)],
+        onocspresponse: [Function: onocspresponse],
+        onnewsession: [Function: onnewsessionclient],
+        onerror: [Function: onerror],
+        [Symbol(owner_symbol)]: [Circular *1],
+        [Symbol(resource_symbol)]: [ReusedHandle]
+      },
+      _requestCert: true,
+      _rejectUnauthorized: true,
+      parser: null,
+      _httpMessage: null,
+      timeout: 0,
+      [Symbol(alpncallback)]: null,
+      [Symbol(res)]: <ref *2> TLSWrap {
+        _parent: [TCP],
+        _parentWrap: null,
+        _secureContext: [SecureContext],
+        reading: true,
+        onkeylog: [Function: onkeylog],
+        onhandshakestart: [Function: noop],
+        onhandshakedone: [Function (anonymous)],
+        onocspresponse: [Function: onocspresponse],
+        onnewsession: [Function: onnewsessionclient],
+        onerror: [Function: onerror],
+        [Symbol(owner_symbol)]: [Circular *1],
+        [Symbol(resource_symbol)]: [ReusedHandle]
+      },
+      [Symbol(verified)]: true,
+      [Symbol(pendingSession)]: null,
+      [Symbol(async_id_symbol)]: -1,
+      [Symbol(kHandle)]: <ref *2> TLSWrap {
+        _parent: [TCP],
+        _parentWrap: null,
+        _secureContext: [SecureContext],
+        reading: true,
+        onkeylog: [Function: onkeylog],
+        onhandshakestart: [Function: noop],
+        onhandshakedone: [Function (anonymous)],
+        onocspresponse: [Function: onocspresponse],
+        onnewsession: [Function: onnewsessionclient],
+        onerror: [Function: onerror],
+        [Symbol(owner_symbol)]: [Circular *1],
+        [Symbol(resource_symbol)]: [ReusedHandle]
+      },
+      [Symbol(lastWriteQueueSize)]: 0,
+      [Symbol(timeout)]: null,
+      [Symbol(kBuffer)]: null,
+      [Symbol(kBufferCb)]: null,
+      [Symbol(kBufferGen)]: null,
+      [Symbol(shapeMode)]: true,
+      [Symbol(kCapture)]: false,
+      [Symbol(kSetNoDelay)]: false,
+      [Symbol(kSetKeepAlive)]: true,
+      [Symbol(kSetKeepAliveInitialDelay)]: 1,
+      [Symbol(kBytesRead)]: 0,
+      [Symbol(kBytesWritten)]: 0,
+      [Symbol(connect-options)]: {
+        rejectUnauthorized: true,
+        ciphers: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA384:ECDHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA256:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA',
+        checkServerIdentity: [Function: checkServerIdentity],
+        minDHSize: 1024,
+        _events: [Object: null prototype],
+        _eventsCount: 3,
+        _maxListeners: undefined,
+        method: 'POST',
+        simple: false,
+        resolveWithFullResponse: true,
+        forever: true,
+        readable: true,
+        writable: true,
+        explicitMethod: true,
+        _qs: [Querystring],
+        _auth: [Auth],
+        _multipart: [Multipart],
+        _redirect: [Redirect],
+        _tunnel: [Tunnel],
+        _rp_resolve: [Function (anonymous)],
+        _rp_reject: [Function (anonymous)],
+        _rp_promise: [Promise [Object]],
+        _rp_callbackOrig: undefined,
+        callback: [Function (anonymous)],
+        _rp_options: [Object],
+        headers: [Object],
+        setHeader: [Function (anonymous)],
+        hasHeader: [Function (anonymous)],
+        getHeader: [Function (anonymous)],
+        removeHeader: [Function (anonymous)],
+        localAddress: undefined,
+        pool: [Object],
+        dests: [],
+        __isRequestRequest: true,
+        _callback: [Function: RP$callback],
+        uri: [Url],
+        proxy: null,
+        tunnel: true,
+        setHost: true,
+        originalCookieHeader: undefined,
+        _disableCookies: true,
+        _jar: undefined,
+        port: 443,
+        host: 'api.telegram.org',
+        body: 'offset=0&timeout=10',
+        path: null,
+        httpModule: [Object],
+        agentClass: [Function: Agent],
+        agentOptions: [Object],
+        agent: [Agent],
+        _started: true,
+        href: 'https://api.telegram.org/bot7982838066:AAGZuoutMrS0kpbMRrqNLihV8cCF5qOwAzk/getUpdates',
+        _defaultAgent: [Agent],
+        keepAlive: true,
+        noDelay: true,
+        servername: 'api.telegram.org',
+        _agentKey: 'api.telegram.org:443:::::::::::::::::::::',
+        encoding: null,
+        keepAliveInitialDelay: 1000
+      }
+    },
+    [Symbol(kOutHeaders)]: [Object: null prototype] {
+      host: [ 'host', 'api.telegram.org' ],
+      'content-type': [ 'content-type', 'application/x-www-form-urlencoded' ],
+      'content-length': [ 'content-length', 276 ]
+    },
+    [Symbol(errored)]: null,
+    [Symbol(kHighWaterMark)]: 65536,
+    [Symbol(kRejectNonStandardBodyWrites)]: false,
+    [Symbol(kUniqueHeaders)]: null
+  },
+  ntick: true,
+  response: [Circular *8],
+  originalHost: 'api.telegram.org',
+  originalHostHeaderName: 'host',
+  responseContent: [Circular *8],
+  _destdata: true,
+  _ended: true,
+  _callbackCalled: true,
+  [Symbol(shapeMode)]: false,
+  [Symbol(kCapture)]: false
+},
+toJSON: [Function: responseToJSON],
+caseless: Caseless {
+  dict: {
+    server: 'nginx/1.18.0',
+    date: 'Mon, 21 Jul 2025 17:03:07 GMT',
+    'content-type': 'application/json',
+    'content-length': '136',
+    connection: 'keep-alive',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'Content-Length,Content-Type,Date,Server,Connection'
+  }
+},
+body: {
+  ok: false,
+  error_code: 400,
+  description: "Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 95"
+},
+[Symbol(shapeMode)]: true,
+[Symbol(kCapture)]: false,
+[Symbol(kHeaders)]: {
+  server: 'nginx/1.18.0',
+  date: 'Mon, 21 Jul 2025 17:03:07 GMT',
+  'content-type': 'application/json',
+  'content-length': '136',
+  connection: 'keep-alive',
+  'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+  'access-control-allow-origin': '*',
+  'access-control-expose-headers': 'Content-Length,Content-Type,Date,Server,Connection'
+},
+[Symbol(kHeadersCount)]: 16,
+[Symbol(kTrailers)]: null,
+[Symbol(kTrailersCount)]: 0
+}
+}
+
+Node.js v22.10.0
+🫀 Keepalive ping: 2025-07-21T17:43:08.775Z
+🫀 Keepalive ping: 2025-07-21T17:44:08.780Z
+🫀 Keepalive ping: 2025-07-21T17:45:08.790Z
+🫀 Keepalive ping: 2025-07-21T17:46:08.795Z
+🫀 Keepalive ping: 2025-07-22T07:58:52.651Z
+🫀 Keepalive ping: 2025-07-22T07:59:52.655Z
+🫀 Keepalive ping: 2025-07-22T08:00:52.662Z
+🫀 Keepalive ping: 2025-07-22T08:01:52.667Z
+🫀 Keepalive ping: 2025-07-22T08:02:52.670Z
+🫀 Keepalive ping: 2025-07-22T08:03:52.670Z
+🫀 Keepalive ping: 2025-07-22T08:04:52.678Z
+🫀 Keepalive ping: 2025-07-22T08:05:52.683Z
+🫀 Keepalive ping: 2025-07-22T08:06:52.683Z
+🫀 Keepalive ping: 2025-07-22T08:07:52.691Z
+🫀 Keepalive ping: 2025-07-22T08:08:52.696Z
+🫀 Keepalive ping: 2025-07-22T08:09:52.699Z
+🫀 Keepalive ping: 2025-07-22T08:10:52.699Z
+🫀 Keepalive ping: 2025-07-22T08:11:52.707Z
+🫀 Keepalive ping: 2025-07-22T08:12:52.712Z
+🫀 Keepalive ping: 2025-07-22T08:13:52.715Z
+🫀 Keepalive ping: 2025-07-22T08:14:52.716Z
+🫀 Keepalive ping: 2025-07-22T11:00:10.043Z
+🫀 Keepalive ping: 2025-07-22T11:01:10.049Z
+🫀 Keepalive ping: 2025-07-22T11:02:10.052Z
+🫀 Keepalive ping: 2025-07-22T11:03:10.053Z
+🫀 Keepalive ping: 2025-07-22T11:04:10.061Z
+🫀 Keepalive ping: 2025-07-22T11:05:10.067Z
+🫀 Keepalive ping: 2025-07-22T11:06:10.071Z
+🫀 Keepalive ping: 2025-07-22T11:07:10.072Z
+🫀 Keepalive ping: 2025-07-22T11:08:10.081Z
+🫀 Keepalive ping: 2025-07-22T11:09:10.088Z
+🫀 Keepalive ping: 2025-07-22T11:10:10.092Z
+🫀 Keepalive ping: 2025-07-22T13:16:44.141Z
+🫀 Keepalive ping: 2025-07-22T13:18:11.542Z
+🫀 Keepalive ping: 2025-07-22T13:19:11.547Z
+🫀 Keepalive ping: 2025-07-22T13:20:11.554Z
+🫀 Keepalive ping: 2025-07-22T13:21:54.927Z
+🫀 Keepalive ping: 2025-07-22T13:24:03.950Z
+🫀 Keepalive ping: 2025-07-22T13:25:03.955Z
+🫀 Keepalive ping: 2025-07-22T13:26:03.958Z
+🫀 Keepalive ping: 2025-07-22T13:27:03.958Z
+🫀 Keepalive ping: 2025-07-22T13:28:03.966Z
+🫀 Keepalive ping: 2025-07-22T13:29:03.972Z
+🫀 Keepalive ping: 2025-07-22T13:30:03.975Z
+🫀 Keepalive ping: 2025-07-22T13:31:03.976Z
+🫀 Keepalive ping: 2025-07-22T13:32:03.985Z
+🫀 Keepalive ping: 2025-07-22T13:33:03.991Z
+🫀 Keepalive ping: 2025-07-22T13:34:03.994Z
+🫀 Keepalive ping: 2025-07-22T13:35:03.995Z
+🫀 Keepalive ping: 2025-07-22T13:36:04.004Z
+🫀 Keepalive ping: 2025-07-22T13:37:04.011Z
+🫀 Keepalive ping: 2025-07-22T13:38:04.015Z
+🫀 Keepalive ping: 2025-07-22T13:39:04.017Z
