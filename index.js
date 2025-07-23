@@ -13,10 +13,6 @@ app.listen(PORT, () => console.log(`🟢 Keepalive listening on port ${PORT}`));
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-bot.deleteWebhook().then(() => {
-  console.log('✅ deleteWebhook выполнен');
-});
-
 const dataDir = path.resolve(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
