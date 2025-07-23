@@ -4,7 +4,7 @@ const path = require('path');
 const broadcastTypes = {
   default: '📢 Объявление',
   important: '❗ Важное сообщение',
-  tech: '🛠️ Техническое обновление',
+  tech: '🛠️ Техобновление',
   info: 'ℹ️ Информация',
   warn: '⚠️ Предупреждение',
 };
@@ -12,10 +12,10 @@ const broadcastTypes = {
 module.exports = function setupBroadcast(bot, developerIds) {
   const usersPath = path.join(__dirname, '../data/users.json');
 
-  bot.onText(/^\/broadcast\s+(\w+)\s+([\s\S]+)/, (msg, match) => {
+  bot.onText(/^\/broadcast\s+(\w+)\s+([\s\S]+)/, async (msg, match) => {
     const senderId = msg.from.id;
     if (!developerIds.includes(senderId)) {
-      return bot.sendMessage(msg.chat.id, '❌ Нет доступа к этой команде');
+      return bot.sendMessage(senderId, '❌ У вас нет доступа к рассылке');
     }
 
     const type = match[1].toLowerCase();
@@ -27,20 +27,23 @@ module.exports = function setupBroadcast(bot, developerIds) {
     try {
       recipients = JSON.parse(fs.readFileSync(usersPath));
     } catch (err) {
-      console.error('Ошибка чтения users.json:', err);
-      return bot.sendMessage(senderId, '❌ Не удалось загрузить список получателей');
+      console.error('❌ Ошибка чтения users.json:', err);
+      return bot.sendMessage(senderId, '⚠️ Не удалось загрузить пользователей');
     }
 
     let sent = 0;
-    recipients.forEach(chatId => {
-      bot.sendMessage(chatId, message)
-        .then(() => sent++)
-        .catch(console.error);
-    });
+    for (const chatId of recipients) {
+      try {
+        await bot.sendMessage(chatId, message);
+        sent++;
+      } catch (err) {
+        console.error(`❌ Не удалось отправить ${chatId}:`, err.message);
+      }
+    }
 
     bot.sendMessage(
       senderId,
-      `📤 Рассылка "${type}" отправлена ${sent} из ${recipients.length} пользователям`
+      `📤 Рассылка "${type}" завершена: ${sent}/${recipients.length} пользователей`
     );
   });
 };
