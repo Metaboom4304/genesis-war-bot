@@ -18,10 +18,10 @@ module.exports = function setupBroadcast(bot, developerIds) {
       return bot.sendMessage(msg.chat.id, '❌ Нет доступа к этой команде');
     }
 
-    const typeKey = match[1].toLowerCase();
+    const type = match[1].toLowerCase();
     const text = match[2].trim();
-    const prefix = broadcastTypes[typeKey] || broadcastTypes.default;
-    const finalMessage = `${prefix}\n\n${text}`;
+    const prefix = broadcastTypes[type] || broadcastTypes.default;
+    const message = `${prefix}\n\n${text}`;
 
     let recipients;
     try {
@@ -31,16 +31,16 @@ module.exports = function setupBroadcast(bot, developerIds) {
       return bot.sendMessage(senderId, '❌ Не удалось загрузить список получателей');
     }
 
-    let sentCount = 0;
+    let sent = 0;
     recipients.forEach(chatId => {
-      bot.sendMessage(chatId, finalMessage)
-        .then(() => sentCount++)
+      bot.sendMessage(chatId, message)
+        .then(() => sent++)
         .catch(console.error);
     });
 
     bot.sendMessage(
       senderId,
-      `📤 Рассылка "${typeKey}" отправлена ${sentCount} из ${recipients.length} пользователям`
+      `📤 Рассылка "${type}" отправлена ${sent} из ${recipients.length} пользователям`
     );
   });
 };
