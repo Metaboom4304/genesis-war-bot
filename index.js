@@ -6,71 +6,69 @@ const TelegramBot = require('node-telegram-bot-api');
 const { BOT_TOKEN, DEVELOPER_IDS, MAP_URL } = require('./config');
 const setupBroadcast = require('./commands/broadcast');
 
-// ───── Keepalive ─────
+// Keepalive
 const app = express();
-app.get('/', (_req, res) => res.send('✅ Bot is up'));
-const PORT = process.env.PORT || 3000;
+app.get('/', (_req, res) => res.send('✅ Bot is running'));
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`🟢 Keepalive listening on port ${PORT}`));
 
-// ───── Bot Init ─────
+// Bot init
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-bot.getMe().then(me => {
-  console.log(`🤖 Бот: @${me.username} (${me.id}) — polling активен`);
-});
 
-// ───── Users DB ─────
-const usersFile = path.join(__dirname, 'data', 'users.json');
+// User base
+const usersPath = path.join(__dirname, 'data/users.json');
 let knownUsers = [];
 try {
-  knownUsers = JSON.parse(fs.readFileSync(usersFile));
+  knownUsers = JSON.parse(fs.readFileSync(usersPath));
 } catch {
-  fs.writeFileSync(usersFile, '[]');
-  console.log('📂 Создан users.json');
+  fs.writeFileSync(usersPath, '[]', 'utf-8');
+  console.log('📂 Создан пустой users.json');
 }
 
+// Universal listener
 bot.on('message', (msg) => {
   const id = msg.chat.id;
   if (!knownUsers.includes(id)) {
     knownUsers.push(id);
-    fs.writeFileSync(usersFile, JSON.stringify(knownUsers, null, 2));
+    fs.writeFileSync(usersPath, JSON.stringify(knownUsers, null, 2));
     console.log(`➕ Новый пользователь: ${id}`);
   }
-  console.log('📨', msg.text, 'от', id);
+
+  console.log(`📩 ${msg.text} ← ${id}`);
 });
 
-// ───── Команды ─────
+// Команды
 setupBroadcast(bot, DEVELOPER_IDS);
 
 bot.onText(/^\/start$/, (msg) => {
-  bot.sendMessage(msg.chat.id, '👋 Добро пожаловать в Genesis War!');
+  bot.sendMessage(msg.chat.id, '👋 Добро пожаловать в Genesis War Bot!');
 });
 
-bot.onText(/^\/status$/, (msg) => {
-  const up = Math.floor(process.uptime());
-  bot.getMe().then(me => {
-    bot.sendMessage(msg.chat.id, `⏱ Uptime: ${up}s\n🤖 Бот: @${me.username}\n👤 Ваш ID: ${msg.chat.id}`);
-  });
+bot.onText(/^\/status$/, async (msg) => {
+  const me = await bot.getMe();
+  const uptime = Math.floor(process.uptime());
+  bot.sendMessage(msg.chat.id, `⏱ Аптайм: ${uptime}s\n🤖 Бот: @${me.username}\n👤 Ваш ID: ${msg.chat.id}`);
 });
 
 bot.onText(/^\/help$/, (msg) => {
   bot.sendMessage(msg.chat.id, `
 📘 Команды:
 /start — Приветствие
-/status — Статус бота
-/map — Переход к карте
-/whoami — Ваши данные
-/debug — Статус API и polling
-/broadcast <тип> <текст> — Рассылка
+/status — Аптайм и ID
+/map — Перейти к карте
+/whoami — Ваш профиль
+/debug — Техническая информация
+/broadcast <тип> <текст> — Рассылка для разработчиков
 
 Типы: tech, important, info, warn
-`);
+  `);
 });
 
 bot.onText(/^\/map$/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📍 Открыть карту мира:', {
+  bot.sendMessage(msg.chat.id, '📍 Перейти к карте Genesis:', {
     reply_markup: {
       inline_keyboard: [
-        [{ text: '🗺️ Перейти к карте', url: MAP_URL }],
+        [{ text: '🗺️ Открыть карту', url: MAP_URL }],
       ],
     },
   });
@@ -80,25 +78,30 @@ bot.onText(/^\/whoami$/, (msg) => {
   const { id, username, first_name } = msg.from;
   const role = DEVELOPER_IDS.includes(id) ? '🛡️ Developer' : '👤 User';
   bot.sendMessage(msg.chat.id, `
-🔍 Информация:
+🔍 Профиль:
 ID: ${id}
-Username: @${username || '–'}
-Имя: ${first_name}
+Username: ${username || '—'}
+Имя: ${first_name || '—'}
 Роль: ${role}
   `);
 });
 
-bot.onText(/^\/debug$/, (msg) => {
+bot.onText(/^\/debug$/, async (msg) => {
   const up = Math.floor(process.uptime());
-  bot.getMe().then(me => {
-    bot.sendMessage(msg.chat.id, `
-🔧 Debug info:
+  const me = await bot.getMe();
+  const isDev = DEVELOPER_IDS.includes(msg.from.id);
+  bot.sendMessage(msg.chat.id, `
+🔧 Debug Info:
 Polling: ✅
 Bot: @${me.username}
+User ID: ${msg.from.id}
+Dev Access: ${isDev ? '✅' : '❌'}
 Uptime: ${up}s
-Your ID: ${msg.chat.id}
   `);
-  });
 });
 
-console.log('✅ Genesis War Bot запущен');
+// Запуск
+bot.getMe().then(me => {
+  console.log(`🤖 Бот подключён как @${me.username} (${me.id})`);
+});
+console.log('✅ Genesis War Bot полностью запущен');
