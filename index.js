@@ -105,3 +105,22 @@ bot.getMe().then(me => {
   console.log(`🤖 Бот подключён как @${me.username} (${me.id})`);
 });
 console.log('✅ Genesis War Bot полностью запущен');
+bot.on('callback_query', (query) => {
+  const id = query.from.id;
+  const data = query.data;
+
+  // Ответ Telegram, чтобы убрать "часики"
+  bot.answerCallbackQuery(query.id);
+
+  console.log(`📦 Нажата кнопка: ${data} от ${id}`);
+
+  if (data === 'open_dev_panel') {
+    bot.sendMessage(id, '🛠️ DevPanel: скоро будет доступна');
+  }
+  else if (data === 'open_updates') {
+    bot.sendMessage(id, '📜 Последние обновления: \n— Версия 0.15\n— Атмосферные тайлы\n— Debug-панель');
+  }
+  else {
+    bot.sendMessage(id, `📌 Вы нажали: ${data}`);
+  }
+});
