@@ -6,13 +6,16 @@ const TelegramBot = require('node-telegram-bot-api');
 const { BOT_TOKEN, DEVELOPER_IDS } = require('./config');
 const setupBroadcast = require('./commands/broadcast');
 
+// ──────────────── KEEPALIVE ────────────────
 const app = express();
 app.get('/', (_req, res) => res.send('✅ Genesis War Bot is up'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🟢 Keepalive listening on port ${PORT}`));
 
+// ──────────────── BOT INIT ────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
+// ──────────────── USERS DATABASE ────────────────
 const dataDir = path.resolve(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
@@ -23,9 +26,10 @@ try {
 } catch {
   knownUsers = [];
   fs.writeFileSync(usersFile, JSON.stringify(knownUsers, null, 2));
-  console.log('📂 Создан пустой data/users.json');
+  console.log('📂 Создан пустой users.json');
 }
 
+// ──────────────── USER LOGGING ────────────────
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   if (!knownUsers.includes(chatId)) {
@@ -33,8 +37,12 @@ bot.on('message', (msg) => {
     fs.writeFileSync(usersFile, JSON.stringify(knownUsers, null, 2));
     console.log(`➕ Новый пользователь: ${chatId}`);
   }
+
+  // Лог входящих сообщений
+  console.log('📥 Сообщение:', msg.text, 'от', chatId);
 });
 
+// ──────────────── COMMANDS ────────────────
 setupBroadcast(bot, DEVELOPER_IDS);
 
 bot.onText(/^\/start$/, (msg) => {
@@ -49,7 +57,7 @@ bot.onText(/^\/status$/, (msg) => {
 });
 
 bot.onText(/^\/help$/, (msg) => {
-  const helpText = `
+  bot.sendMessage(msg.chat.id, `
 📘 Справка:
 
 /start — Приветствие
@@ -59,14 +67,14 @@ bot.onText(/^\/help$/, (msg) => {
 
 Доступные типы:
 • important — ❗ Важное сообщение
-• tech — 🛠️ Техобновление
+• tech — 🛠️ Техническое обновление
 • info — ℹ️ Информация
 • warn — ⚠️ Предупреждение
-• другое — 📢 Объявление
-`;
-  bot.sendMessage(msg.chat.id, helpText);
+• любое другое — 📢 Объявление
+`);
 });
 
+// ──────────────── BOT INFO ────────────────
 bot.getMe().then(me => {
   console.log(`🤖 Бот подключён как: ${me.username} ${me.id}`);
 });
