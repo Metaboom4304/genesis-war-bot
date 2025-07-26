@@ -57,7 +57,7 @@ if (!users[id]) {
   console.log(`📝 Новый юзер записан: ${username} (${id})`);
 }
 
-bot.sendMessage(msg.chat.id, `👋 Привет, ${username}! Ты зарегистрирован как ${users[id].role}.`););
+bot.sendMessage(msg.chat.id, `👋 Привет, ${username}! Ты зарегистрирован как ${users[id].role}.`);
 
 // 🧪 Диагностика /status
 bot.onText(/\/status/, (msg) => {
