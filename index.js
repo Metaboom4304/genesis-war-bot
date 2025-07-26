@@ -1,82 +1,108 @@
+// ┌────────────────────────────────┐
+// │        🔧 Загрузка .env        │
+// └────────────────────────────────┘
+require('dotenv').config();
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+console.log(`[ENV CHECK] TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}`);
+
+// ┌────────────────────────────────┐
+// │        📦 Импорты модулей       │
+// └────────────────────────────────┘
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
-const dotenv = require('dotenv');
+const path = require('path');
 
-dotenv.config();
-
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const DEBUG_MODE = process.env.DEBUG_MODE === 'true';
-const MAP_ENABLED = process.env.MAP_ENABLED === 'true';
-
+// ┌────────────────────────────────┐
+// │  🤖 Инициализация Telegram Bot │
+// └────────────────────────────────┘
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-function loadUsers() {
-  try {
-    const rawData = fs.readFileSync('data/users.json');
-    return JSON.parse(rawData);
-  } catch (e) {
-    return {};
-  }
+bot.getMe()
+  .then((me) => console.log(`🌐 Бот активен: @${me.username}`))
+  .catch((err) => console.error('🚫 Ошибка Telegram:', err));
+
+// ┌────────────────────────────────┐
+// │  📁 Подключение users.json      │
+// └────────────────────────────────┘
+const USERS_PATH = path.join(__dirname, 'data', 'users.json');
+let users = {};
+
+try {
+  const raw = fs.readFileSync(USERS_PATH, 'utf-8');
+  users = JSON.parse(raw);
+  console.log(`👤 Загружено ${Object.keys(users).length} пользователей`);
+} catch (err) {
+  console.error('⚠️ users.json не загружается:', err);
+  users = {};
 }
 
-function saveUsers(users) {
-  fs.writeFileSync('data/users.json', JSON.stringify(users, null, 2));
+// ┌────────────────────────────────┐
+// │   📌 Поддержка ролей и inline  │
+// └────────────────────────────────┘
+function getRole(id) {
+  return users[id]?.role || 'user';
 }
 
-// 💾 Авторизация
+function isAdmin(id) {
+  return getRole(id) === 'admin' || getRole(id) === 'dev';
+}
+
+function saveUsers() {
+  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+}
+
+// ┌────────────────────────────────┐
+// │     🎮 Команда /start           │
+// └────────────────────────────────┘
 bot.onText(/\/start/, (msg) => {
-  const id = msg.from.id.toString();
-  const users = loadUsers();
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
 
-  if (!users[id]) {
-    users[id] = {
-      id,
-      username: msg.from.username || '',
+  if (!users[userId]) {
+    users[userId] = {
+      telegram_id: userId,
       role: 'user',
-      joined: new Date().toISOString(),
+      registered_at: new Date().toISOString()
     };
-    saveUsers(users);
+    saveUsers();
+    console.log(`📥 Зарегистрирован: ${userId}`);
   }
 
-  bot.sendMessage(msg.chat.id, '👋 Добро пожаловать! Вы успешно авторизованы.');
+  const buttons = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🛠 Статус системы', callback_data: 'status' }],
+        isAdmin(userId)
+          ? [{ text: '🔧 debugMode', callback_data: 'debug' }]
+          : []
+      ].filter(row => row.length > 0)
+    }
+  };
+
+  bot.sendMessage(chatId, '👋 Добро пожаловать в систему GENESIS', buttons);
 });
 
-// 🧭 Статус
-bot.onText(/\/status/, (msg) => {
-  const id = msg.from.id.toString();
-  const users = loadUsers();
-  const role = users[id]?.role || 'user';
-  const isAdmin = role === 'admin' || role === 'dev';
+// ┌────────────────────────────────┐
+// │      📶 Обработка кнопок        │
+// └────────────────────────────────┘
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
 
-  bot.sendMessage(msg.chat.id, `
-🧪 Статус системы:
-TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
-DEBUG_MODE: ${DEBUG_MODE}
-MAP_ENABLED: ${MAP_ENABLED}
-USER_ROLE: ${role}
-IS_ADMIN: ${isAdmin}
-`);
-});
-
-// 🗺️ Карта
-bot.onText(/\/map/, (msg) => {
-  if (!MAP_ENABLED) {
-    return bot.sendMessage(msg.chat.id, '🗺️ Карта временно отключена.');
+  if (query.data === 'status') {
+    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(chatId, `📊 STATUS CHECK:\n- users.json: ${Object.keys(users).length} юзеров\n- Роль: ${getRole(userId)}\n- ENV токен: ${TELEGRAM_TOKEN ? '✅' : '❌'}`);
   }
 
-  bot.sendMessage(msg.chat.id, '🌍 Загрузка карты... [placeholder]');
+  if (query.data === 'debug' && isAdmin(userId)) {
+    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(chatId, `🔧 DEBUG MODE:\n- Telegram: polling active\n- ENV: ${TELEGRAM_TOKEN ? '✅ доступен' : '❌ нет токена'}\n- Бот: работает как @GENESIS`);
+  }
 });
 
-// 🔐 Админ доступ
-bot.onText(/\/admin/, (msg) => {
-  const id = msg.from.id.toString();
-  const users = loadUsers();
-  const role = users[id]?.role || 'user';
-  const isAdmin = role === 'admin' || role === 'dev';
-
-  if (!isAdmin) {
-    return bot.sendMessage(msg.chat.id, '⛔ Недостаточно прав.');
-  }
-
-  bot.sendMessage(msg.chat.id, `🔒 Админ доступ подтвержден. Ваша роль: ${role}`);
+// ┌────────────────────────────────┐
+// │    📡 Polling errors логгер     │
+// └────────────────────────────────┘
+bot.on('polling_error', (err) => {
+  console.error('📡 Polling error:', err.message);
 });
