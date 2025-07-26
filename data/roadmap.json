@@ -1,1 +1,8 @@
-[]
+{
+  "id": "map-toggle-control",
+  "title": "Переключение карты через Telegram",
+  "type": "feature",
+  "status": "done",
+  "date": "2025-07-26",
+  "description": "Добавлена команда /maptoggle с inline-кнопкой для включения/отключения карты"
+}
