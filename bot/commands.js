@@ -141,3 +141,39 @@ async function handleText(bot, msg) {
 }
 
 module.exports = { handleCallback, handleText };
+const fs = require('fs');
+const path = require('path');
+const configPath = path.join(__dirname, '../config.js');
+
+function reloadConfig() {
+  delete require.cache[require.resolve(configPath)];
+  return require(configPath);
+}
+
+function logMapAction(username, status) {
+  const logEntry = `${new Date().toISOString()} — ${username} ${status ? 'включил' : 'отключил'} карту\n`;
+  fs.appendFileSync(path.join(__dirname, '../logs.txt'), logEntry);
+}
+
+bot.command('maptoggle', (ctx) => {
+  const config = reloadConfig();
+  const status = config.mapEnabled ? '🟢 карта включена' : '🔴 карта отключена';
+  ctx.reply(`Статус карты: ${status}`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: config.mapEnabled ? '❌ Отключить карту' : '✅ Включить карту', callback_data: 'toggle_map' }]
+      ]
+    }
+  });
+});
+
+bot.action('toggle_map', (ctx) => {
+  const config = reloadConfig();
+  config.mapEnabled = !config.mapEnabled;
+
+  const newConfigText = `module.exports = ${JSON.stringify(config, null, 2)};\n`;
+  fs.writeFileSync(configPath, newConfigText);
+
+  ctx.editMessageText(`Карта теперь ${config.mapEnabled ? '🟢 включена' : '🔴 отключена'}`);
+  logMapAction(ctx.from.username, config.mapEnabled);
+});
