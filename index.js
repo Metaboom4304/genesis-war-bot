@@ -1,108 +1,64 @@
-// ┌────────────────────────────────┐
-// │        🔧 Загрузка .env        │
-// └────────────────────────────────┘
-require('dotenv').config();
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-console.log(`[ENV CHECK] TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}`);
-
-// ┌────────────────────────────────┐
-// │        📦 Импорты модулей       │
-// └────────────────────────────────┘
+// ╔═════════════════════════════════╗
+// ║ 🔧 Инициализация и переменные  ║
+// ╚═════════════════════════════════╝
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
 
-// ┌────────────────────────────────┐
-// │  🤖 Инициализация Telegram Bot │
-// └────────────────────────────────┘
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const TOKEN = process.env.TELEGRAM_TOKEN;
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-bot.getMe()
-  .then((me) => console.log(`🌐 Бот активен: @${me.username}`))
-  .catch((err) => console.error('🚫 Ошибка Telegram:', err));
-
-// ┌────────────────────────────────┐
-// │  📁 Подключение users.json      │
-// └────────────────────────────────┘
-const USERS_PATH = path.join(__dirname, 'data', 'users.json');
+// ╔═════════════════════════════════╗
+// ║ 📁 Загрузка users.json         ║
+// ╚═════════════════════════════════╝
 let users = {};
-
 try {
-  const raw = fs.readFileSync(USERS_PATH, 'utf-8');
-  users = JSON.parse(raw);
-  console.log(`👤 Загружено ${Object.keys(users).length} пользователей`);
-} catch (err) {
-  console.error('⚠️ users.json не загружается:', err);
+  users = JSON.parse(fs.readFileSync('users.json', 'utf-8'));
+} catch (e) {
+  console.warn('❗ users.json повреждён или пуст');
   users = {};
 }
 
-// ┌────────────────────────────────┐
-// │   📌 Поддержка ролей и inline  │
-// └────────────────────────────────┘
-function getRole(id) {
-  return users[id]?.role || 'user';
-}
+// ╔═════════════════════════════════════════╗
+// ║ 🛡️ Polling Guard — контроль конфликтов ║
+// ╚═════════════════════════════════════════╝
+let pollingLocked = false;
+bot.on('polling_error', (error) => {
+  console.error('⚠️ Polling error:', error.message);
+  if (error.message.includes('terminated by other getUpdates request')) {
+    pollingLocked = true;
+  }
+});
 
-function isAdmin(id) {
-  return getRole(id) === 'admin' || getRole(id) === 'dev';
-}
-
-function saveUsers() {
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
-}
-
-// ┌────────────────────────────────┐
-// │     🎮 Команда /start           │
-// └────────────────────────────────┘
+// ╔═════════════════════════════════╗
+// ║ 🚀 Команда /start              ║
+// ╚═════════════════════════════════╝
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+
+  if (pollingLocked) {
+    return bot.sendMessage(chatId, '⛔ Бот уже работает в другом процессе. Завершите лишний polling.');
+  }
+
   const userId = msg.from.id;
+  users[userId] = { username: msg.from.username || 'Без имени', timestamp: Date.now() };
 
-  if (!users[userId]) {
-    users[userId] = {
-      telegram_id: userId,
-      role: 'user',
-      registered_at: new Date().toISOString()
-    };
-    saveUsers();
-    console.log(`📥 Зарегистрирован: ${userId}`);
-  }
+  fs.writeFileSync('users.json', JSON.stringify(users, null, 2));
 
-  const buttons = {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🛠 Статус системы', callback_data: 'status' }],
-        isAdmin(userId)
-          ? [{ text: '🔧 debugMode', callback_data: 'debug' }]
-          : []
-      ].filter(row => row.length > 0)
-    }
-  };
-
-  bot.sendMessage(chatId, '👋 Добро пожаловать в систему GENESIS', buttons);
+  bot.sendMessage(chatId, `👋 Привет, ${users[userId].username}! Ты зарегистрирован.`);
 });
 
-// ┌────────────────────────────────┐
-// │      📶 Обработка кнопок        │
-// └────────────────────────────────┘
-bot.on('callback_query', (query) => {
-  const chatId = query.message.chat.id;
-  const userId = query.from.id;
+// ╔═════════════════════════════════╗
+// ║ 📊 Команда /status             ║
+// ╚═════════════════════════════════╝
+bot.onText(/\/status/, (msg) => {
+  const chatId = msg.chat.id;
 
-  if (query.data === 'status') {
-    bot.answerCallbackQuery(query.id);
-    bot.sendMessage(chatId, `📊 STATUS CHECK:\n- users.json: ${Object.keys(users).length} юзеров\n- Роль: ${getRole(userId)}\n- ENV токен: ${TELEGRAM_TOKEN ? '✅' : '❌'}`);
-  }
+  const userCount = Object.keys(users).length;
+  const preview = Object.keys(users)
+    .slice(0, 5)
+    .map(id => `${id}: ${users[id].username}`)
+    .join('\n');
 
-  if (query.data === 'debug' && isAdmin(userId)) {
-    bot.answerCallbackQuery(query.id);
-    bot.sendMessage(chatId, `🔧 DEBUG MODE:\n- Telegram: polling active\n- ENV: ${TELEGRAM_TOKEN ? '✅ доступен' : '❌ нет токена'}\n- Бот: работает как @GENESIS`);
-  }
-});
-
-// ┌────────────────────────────────┐
-// │    📡 Polling errors логгер     │
-// └────────────────────────────────┘
-bot.on('polling_error', (err) => {
-  console.error('📡 Polling error:', err.message);
+  bot.sendMessage(chatId, `📦 Пользователей: ${userCount}\n🧾 Первые 5:\n${preview}`);
 });
