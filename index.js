@@ -85,6 +85,37 @@ bot.onText(/^\/help$/, (msg) => {
   `);
 });
 
+bot.onText(/^\/devpanel$/, (msg) => {
+  const id = msg.chat.id;
+  const isDev = DEVELOPER_IDS.includes(id);
+
+  if (!isDev) {
+    bot.sendMessage(id, '⛔ Эта панель доступна только разработчикам');
+    return;
+  }
+
+  const config = reloadConfig();
+
+  bot.sendMessage(id, '🧭 Панель разработчика:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: config.mapEnabled ? '❌ Отключить карту' : '✅ Включить карту',
+            callback_data: 'dev_toggle_map'
+          }
+        ],
+        [
+          { text: '📜 Показать последние логи', callback_data: 'dev_show_logs' },
+          { text: '🧪 Проверить доступ', callback_data: 'dev_check_access' }
+        ],
+        [
+          { text: '📦 Посмотреть roadmap', callback_data: 'dev_show_roadmap' }
+        ]
+      ]
+    }
+  });
+});
 bot.onText(/^\/whoami$/, (msg) => {
   const { id, username, first_name } = msg.from;
   console.log('[WHOAMI] Your ID:', id);
