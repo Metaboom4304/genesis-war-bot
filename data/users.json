@@ -1,7 +1,7 @@
 {
-  "test": {
+  "admin": {
     "id": "0",
-    "name": "Temp",
-    "roles": []
+    "name": "Master",
+    "roles": ["root"]
   }
 }
