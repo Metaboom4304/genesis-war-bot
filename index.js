@@ -24,6 +24,24 @@ try {
   console.log('📂 Создан пустой users.json');
 }
 
+// Reload config
+const configPath = path.join(__dirname, 'config.js');
+function reloadConfig() {
+  delete require.cache[require.resolve(configPath)];
+  return require(configPath);
+}
+
+// Логирование действий с картой
+function logMapToggle(user, status) {
+  const logEntry = `${new Date().toISOString()} — ${user} ${status ? 'включил' : 'отключил'} карту\n`;
+  fs.appendFileSync(path.join(__dirname, 'logs.txt'), logEntry);
+}
+
+function logMapAccessAttempt(user) {
+  const logEntry = `${new Date().toISOString()} — ${user} пытался открыть отключённую карту\n`;
+  fs.appendFileSync(path.join(__dirname, 'logs.txt'), logEntry);
+}
+
 // Universal listener
 bot.on('message', (msg) => {
   const id = msg.chat.id;
@@ -36,7 +54,7 @@ bot.on('message', (msg) => {
   console.log(`📩 ${msg.text} ← ${id}`);
 });
 
-// Broadcast команда
+// Команда /broadcast из внешнего файла
 const setupBroadcast = require('./commands/broadcast');
 setupBroadcast(bot, DEVELOPER_IDS);
 
@@ -48,32 +66,23 @@ bot.onText(/^\/start$/, (msg) => {
 bot.onText(/^\/status$/, async (msg) => {
   const me = await bot.getMe();
   const uptime = Math.floor(process.uptime());
-  bot.sendMessage(msg.chat.id, `⏱ Аптайм: ${uptime}s\n🤖 Бот: @${me.username}\n👤 Ваш ID: ${msg.chat.id}`);
+  const config = reloadConfig();
+  bot.sendMessage(msg.chat.id, `⏱ Аптайм: ${uptime}s\n🤖 Бот: @${me.username}\n👤 Ваш ID: ${msg.chat.id}\n🗺️ Карта: ${config.mapEnabled ? '🟢 включена' : '🔴 отключена'}`);
 });
 
 bot.onText(/^\/help$/, (msg) => {
   bot.sendMessage(msg.chat.id, `
 📘 Команды:
 /start — Приветствие
-/status — Аптайм и ID
+/status — Аптайм и статус карты
 /map — Перейти к карте
 /maptoggle — Включить/отключить карту
 /whoami — Ваш профиль
 /debug — Техническая информация
-/broadcast <тип> <текст> — Рассылка для разработчиков
+/broadcast <тип> <текст> — Рассылка
 
 Типы: tech, important, info, warn
   `);
-});
-
-bot.onText(/^\/map$/, (msg) => {
-  bot.sendMessage(msg.chat.id, '📍 Перейти к карте Genesis:', {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '🗺️ Открыть карту', url: MAP_URL }],
-      ],
-    },
-  });
 });
 
 bot.onText(/^\/whoami$/, (msg) => {
@@ -102,23 +111,46 @@ Uptime: ${up}s
   `);
 });
 
-// 🗺️ Команда maptoggle
-const configPath = path.join(__dirname, 'config.js');
-function reloadConfig() {
-  delete require.cache[require.resolve(configPath)];
-  return require(configPath);
-}
-
-function logMapToggle(user, status) {
-  const logEntry = `${new Date().toISOString()} — ${user} ${status ? 'включил' : 'отключил'} карту\n`;
-  fs.appendFileSync(path.join(__dirname, 'logs.txt'), logEntry);
-}
-
-bot.onText(/^\/maptoggle$/, (msg) => {
-  const id = msg.chat.id;
+// 🌍 Команда /map с проверкой mapEnabled
+bot.onText(/^\/map$/, (msg) => {
   const config = reloadConfig();
-  const statusText = config.mapEnabled ? '🟢 включена' : '🔴 отключена';
+  const id = msg.chat.id;
+  const username = msg.from.username || msg.from.first_name || 'unknown';
 
+  if (!config.mapEnabled) {
+    bot.sendMessage(id, '❌ Карта временно отключена администратором', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔁 Проверить снова', callback_data: 'check_map_status' }]
+        ]
+      }
+    });
+    logMapAccessAttempt(username);
+    return;
+  }
+
+  bot.sendMessage(id, '📍 Перейти к карте Genesis:', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🗺️ Открыть карту', url: MAP_URL }],
+      ],
+    },
+  });
+});
+
+// 🔀 Команда /maptoggle
+bot.onText(/^\/maptoggle$/, (msg) => {
+  const config = reloadConfig();
+  const id = msg.chat.id;
+  const username = msg.from.username || msg.from.first_name || 'unknown';
+  const isDev = DEVELOPER_IDS.includes(msg.from.id);
+
+  if (!isDev) {
+    bot.sendMessage(id, '⛔ Только разработчики могут переключать карту');
+    return;
+  }
+
+  const statusText = config.mapEnabled ? '🟢 включена' : '🔴 отключена';
   bot.sendMessage(id, `Статус карты: ${statusText}`, {
     reply_markup: {
       inline_keyboard: [
@@ -128,17 +160,21 @@ bot.onText(/^\/maptoggle$/, (msg) => {
   });
 });
 
-// 📦 Обработка кнопок
+// ⚙️ Обработка inline-кнопок
 bot.on('callback_query', (query) => {
   const id = query.from.id;
   const data = query.data;
   const username = query.from.username || query.from.first_name || 'unknown';
-
   bot.answerCallbackQuery(query.id);
 
-  // 🔁 Переключение карты
+  // Переключение карты
   if (data === 'toggle_map') {
     const config = reloadConfig();
+    if (!DEVELOPER_IDS.includes(id)) {
+      bot.sendMessage(id, '⛔ Недостаточно прав для переключения карты');
+      return;
+    }
+
     config.mapEnabled = !config.mapEnabled;
     const newConfigText = `module.exports = ${JSON.stringify(config, null, 2)};\n`;
     fs.writeFileSync(configPath, newConfigText);
@@ -148,14 +184,29 @@ bot.on('callback_query', (query) => {
     return;
   }
 
-  // Другие кнопки
+  // Проверка статуса карты
+  if (data === 'check_map_status') {
+    const config = reloadConfig();
+    if (!config.mapEnabled) {
+      bot.sendMessage(id, '⛔ Карта всё ещё отключена. Попробуйте позже.');
+    } else {
+      bot.sendMessage(id, '✅ Карта снова активна:', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🗺️ Перейти к карте', url: MAP_URL }]
+          ]
+        }
+      });
+    }
+    return;
+  }
+
+  // Прочие действия
   if (data === 'open_dev_panel') {
     bot.sendMessage(id, '🛠️ DevPanel: скоро будет доступна');
-  }
-  else if (data === 'open_updates') {
+  } else if (data === 'open_updates') {
     bot.sendMessage(id, '📜 Последние обновления: \n— Версия 0.15\n— Атмосферные тайлы\n— Debug-панель');
-  }
-  else {
+  } else {
     bot.sendMessage(id, `📌 Вы нажали: ${data}`);
   }
 });
