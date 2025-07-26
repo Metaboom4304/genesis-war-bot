@@ -13,3 +13,8 @@ function safeSend(bot, chatId, text, options = {}) {
 }
 
 module.exports = safeSend;
+const safeSend = require('../utils/safeSend');
+if (!mapEnabled) {
+  safeSend(ctx, '⛔ Карта временно отключена администратором');
+  return;
+}
