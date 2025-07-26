@@ -1,95 +1,87 @@
-// 📦 Импорт зависимостей
-const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
+// index.js
 
-// 🚀 Инициализация бота
-const token = 'YOUR_BOT_TOKEN';
-const bot = new TelegramBot(token, { polling: true });
+// Подгружаем .env и распаковываем BOT_TOKEN
+import 'dotenv/config';
+import TelegramBot from 'node-telegram-bot-api';
+import App from './controllers/index.js';
 
-// 🧠 Загрузка и сохранение состояния
-const loadMemory = () => JSON.parse(fs.readFileSync('./memory.json'));
-const saveMemory = (data) => fs.writeFileSync('./memory.json', JSON.stringify(data, null, 2));
+// debug: убеждаемся, что токен читается
+console.log('[INIT] BOT_TOKEN =', process.env.BOT_TOKEN);
+if (!process.env.BOT_TOKEN) {
+  console.error('❌ BOT_TOKEN отсутствует! Завершаем работу.');
+  process.exit(1);
+}
 
-// 🟢 Команды пользователя
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, '👋 Добро пожаловать!\nНапиши /devpanel чтобы открыть инструменты разработчика.');
-});
+// создаём экземпляр бота с polling
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-bot.onText(/\/updates/, (msg) => {
-  const changelog = fs.readFileSync('./changelog.txt', 'utf-8');
-  bot.sendMessage(msg.chat.id, `📜 Changelog:\n\n${changelog}`);
-});
-
-bot.onText(/\/devpanel/, (msg) => {
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: '🔁 Переключить карту', callback_data: 'dev_toggle_map' }],
-      [{ text: '📄 Показать логи', callback_data: 'dev_show_logs' }],
-      [{ text: '🛣 Открыть roadmap', callback_data: 'dev_show_roadmap' }],
-      [{ text: '👤 Проверить доступ', callback_data: 'dev_check_access' }],
-      [{ text: '🪵 Переключить debugMode', callback_data: 'dev_debug_toggle' }]
-    ]
-  };
-  bot.sendMessage(msg.chat.id, '⚙️ Dev-панель:\nВыбери действие:', {
-    reply_markup: keyboard
+// проверяем токен методом getMe
+bot.getMe()
+  .then(me => {
+    console.log('[INIT] Авторизован как @' + me.username);
+  })
+  .catch(err => {
+    console.error('❌ Не удалось авторизоваться (getMe):', err.response?.body || err.message);
+    process.exit(1);
   });
+
+// логируем ошибки polling-а
+bot.on('polling_error', error => {
+  console.error('❌ Polling error:', error.code, error.response?.body || error);
 });
 
-
-// 🎛 Обработка кнопок
-bot.on('callback_query', async (query) => {
-  const id = query.from.id;
-  const data = query.data;
-  const username = query.from.username || 'без username';
-  const userInfo = `ID: ${id}\nUsername: ${username}`;
-  bot.answerCallbackQuery(query.id);
-
-  // 💠 Панель разработчика
-  if (data === 'open_dev_panel') {
-    bot.sendMessage(id, '⚙️ Dev-панель активна. Выбери действие выше.');
-  }
-
-  // 📜 Changelog
-  else if (data === 'open_updates') {
-    const changelog = fs.readFileSync('./changelog.txt', 'utf-8');
-    bot.sendMessage(id, `📜 Changelog:\n\n${changelog}`);
-  }
-
-  // 🔁 Переключение карты
-  else if (data === 'dev_toggle_map') {
-    const memory = loadMemory();
-    memory.mapEnabled = !memory.mapEnabled;
-    saveMemory(memory);
-    bot.sendMessage(id, `🗺 Карта теперь: ${memory.mapEnabled ? 'Включена' : 'Отключена'}`);
-  }
-
-  // 📄 Просмотр логов
-  else if (data === 'dev_show_logs') {
-    const logs = fs.readFileSync('./logs.txt', 'utf-8');
-    bot.sendMessage(id, `📄 Логи:\n\n${logs.slice(-3000)}`);
-  }
-
-  // 🛣 Чтение roadmap
-  else if (data === 'dev_show_roadmap') {
-    const roadmap = fs.readFileSync('./roadmap.json', 'utf-8');
-    bot.sendMessage(id, `🛣 Roadmap:\n\n${roadmap}`);
-  }
-
-  // 👤 Проверка доступа
-  else if (data === 'dev_check_access') {
-    bot.sendMessage(id, `🔎 Доступ:\n${userInfo}`);
-  }
-
-  // 🪵 Переключение debugMode
-  else if (data === 'dev_debug_toggle') {
-    const memory = loadMemory();
-    memory.debugMode = !memory.debugMode;
-    saveMemory(memory);
-    bot.sendMessage(id, `🪵 DebugMode: ${memory.debugMode ? 'Активен' : 'Выключен'}`);
-  }
-
-  // 🚫 Неизвестная кнопка
-  else {
-    console.log(`⚠️ Неизвестная кнопка: ${data}`);
+// универсальный приёмник любых сообщений
+bot.on('message', msg => {
+  try {
+    App.handleMessage(bot, msg);
+  } catch (err) {
+    console.error('❌ Ошибка в App.handleMessage:', err);
   }
 });
+
+// команда /start
+bot.onText(/\/start/, msg => {
+  try {
+    App.start(bot, msg);
+  } catch (err) {
+    console.error('❌ Ошибка в App.start:', err);
+  }
+});
+
+// команда /help
+bot.onText(/\/help/, msg => {
+  try {
+    App.help(bot, msg);
+  } catch (err) {
+    console.error('❌ Ошибка в App.help:', err);
+  }
+});
+
+// inline-запросы
+bot.on('inline_query', query => {
+  try {
+    App.handleInlineQuery(bot, query);
+  } catch (err) {
+    console.error('❌ Ошибка в App.handleInlineQuery:', err);
+  }
+});
+
+// выбор inline результата
+bot.on('chosen_inline_result', result => {
+  try {
+    App.handleChosenInlineResult(bot, result);
+  } catch (err) {
+    console.error('❌ Ошибка в App.handleChosenInlineResult:', err);
+  }
+});
+
+// колбэки из кнопок
+bot.on('callback_query', callbackQuery => {
+  try {
+    App.handleCallbackQuery(bot, callbackQuery);
+  } catch (err) {
+    console.error('❌ Ошибка в App.handleCallbackQuery:', err);
+  }
+});
+
+export default bot;
