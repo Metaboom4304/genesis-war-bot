@@ -43,9 +43,21 @@ console.log(`
 `);
 
 // 👋 Команда /start
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, `👋 Привет, ${msg.from.first_name}! Ты запущен в режиме ${USER_ROLE}.`);
-});
+bot.onText(/\/start/, (msg) => { const id = msg.from.id.toString();
+const username = msg.from.username || "без username";
+
+if (!users[id]) {
+  users[id] = {
+    username,
+    role: "user",           // ← по умолчанию
+    mapAccess: false,       // ← доступ к карте
+    joinedAt: new Date().toISOString()
+  };
+  fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+  console.log(`📝 Новый юзер записан: ${username} (${id})`);
+}
+
+bot.sendMessage(msg.chat.id, `👋 Привет, ${username}! Ты зарегистрирован как ${users[id].role}.`););
 
 // 🧪 Диагностика /status
 bot.onText(/\/status/, (msg) => {
