@@ -1,87 +1,55 @@
 // index.js
 
-// Подгружаем .env и распаковываем BOT_TOKEN
-import 'dotenv/config';
-import TelegramBot from 'node-telegram-bot-api';
-import App from './controllers/index.js';
+require('dotenv').config();
+const TelegramBot = require('node-telegram-bot-api');
+const express     = require('express');
+const bodyParser  = require('body-parser');
+const winston     = require('winston');
+const App         = require('./controllers/index.js');
 
-// debug: убеждаемся, что токен читается
-console.log('[INIT] BOT_TOKEN =', process.env.BOT_TOKEN);
-if (!process.env.BOT_TOKEN) {
-  console.error('❌ BOT_TOKEN отсутствует! Завершаем работу.');
+// Логгер
+const logger = winston.createLogger({
+  level: 'info',
+  transports: [
+    new winston.transports.Console({ format: winston.format.simple() }),
+    new winston.transports.File({ filename: 'logs/combined.log' })
+  ]
+});
+
+// Проверяем токен
+const TOKEN = process.env.TELEGRAM_TOKEN;
+if (!TOKEN) {
+  logger.error('TELEGRAM_TOKEN не задан');
   process.exit(1);
 }
 
-// создаём экземпляр бота с polling
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+// Инициализируем бота
+const bot = new TelegramBot(TOKEN, { polling: true });
+bot.on('polling_error', (err) => logger.error('Polling error:', err));
 
-// проверяем токен методом getMe
-bot.getMe()
-  .then(me => {
-    console.log('[INIT] Авторизован как @' + me.username);
-  })
-  .catch(err => {
-    console.error('❌ Не удалось авторизоваться (getMe):', err.response?.body || err.message);
-    process.exit(1);
-  });
+// Подключаем контроллеры
+App(bot);
 
-// логируем ошибки polling-а
-bot.on('polling_error', error => {
-  console.error('❌ Polling error:', error.code, error.response?.body || error);
+// Dev-панель
+const app = express();
+app.use(bodyParser.json());
+
+app.get('/',    (req, res) => res.send('🛠 Bot is running.'));
+app.get('/status', (req, res) => {
+  res.json({ status: 'up', uptime: process.uptime() });
+});
+app.post('/webhook', (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
-// универсальный приёмник любых сообщений
-bot.on('message', msg => {
-  try {
-    App.handleMessage(bot, msg);
-  } catch (err) {
-    console.error('❌ Ошибка в App.handleMessage:', err);
-  }
-});
+// Запуск
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => logger.info(`Dev-панель на http://localhost:${PORT}`));
 
-// команда /start
-bot.onText(/\/start/, msg => {
-  try {
-    App.start(bot, msg);
-  } catch (err) {
-    console.error('❌ Ошибка в App.start:', err);
-  }
+// Graceful shutdown
+process.on('SIGINT', () => {
+  logger.info('Shutting down...');
+  bot.stopPolling();
+  process.exit(0);
 });
-
-// команда /help
-bot.onText(/\/help/, msg => {
-  try {
-    App.help(bot, msg);
-  } catch (err) {
-    console.error('❌ Ошибка в App.help:', err);
-  }
-});
-
-// inline-запросы
-bot.on('inline_query', query => {
-  try {
-    App.handleInlineQuery(bot, query);
-  } catch (err) {
-    console.error('❌ Ошибка в App.handleInlineQuery:', err);
-  }
-});
-
-// выбор inline результата
-bot.on('chosen_inline_result', result => {
-  try {
-    App.handleChosenInlineResult(bot, result);
-  } catch (err) {
-    console.error('❌ Ошибка в App.handleChosenInlineResult:', err);
-  }
-});
-
-// колбэки из кнопок
-bot.on('callback_query', callbackQuery => {
-  try {
-    App.handleCallbackQuery(bot, callbackQuery);
-  } catch (err) {
-    console.error('❌ Ошибка в App.handleCallbackQuery:', err);
-  }
-});
-
-export default bot;
