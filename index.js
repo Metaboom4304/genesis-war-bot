@@ -87,6 +87,9 @@ bot.onText(/^\/help$/, (msg) => {
 
 bot.onText(/^\/whoami$/, (msg) => {
   const { id, username, first_name } = msg.from;
+  console.log('[WHOAMI] Your ID:', id);
+console.log('[WHOAMI] Developer IDs:', DEVELOPER_IDS);
+console.log('[WHOAMI] Types:', typeof id, typeof DEVELOPER_IDS[0]);
   const role = DEVELOPER_IDS.includes(id) ? '🛡️ Developer' : '👤 User';
   bot.sendMessage(msg.chat.id, `
 🔍 Профиль:
