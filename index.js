@@ -1,3 +1,18 @@
+const fs = require('fs');
+const path = require('path');
+
+const usersPath = path.join(__dirname, 'data', 'users.json');
+
+// Загружаем users.json или создаём пустой объект
+let users = {};
+try {
+  const raw = fs.readFileSync(usersPath, 'utf8');
+  users = JSON.parse(raw);
+} catch {
+  console.warn('⚠️ users.json не найден — создаю пустой');
+  users = {};
+  fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+}
 // 📦 Загружаем переменные окружения
 require('dotenv').config();
 
