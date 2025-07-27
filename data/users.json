@@ -1,7 +1,1 @@
-{
-  "admin": {
-    "id": "0",
-    "name": "Master",
-    "roles": ["root"]
-  }
-}
+{}
