@@ -1,35 +1,60 @@
-// ╔════════════════════════════════════════╗
-// ║ 🚀 GENESIS_LAUNCHER — запуск Telegram ║
-// ╚════════════════════════════════════════╝
-
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+// ╔══════════════════════════════════════════╗
+// ║ 🧰 Инициализация системного окружения    ║
+// ╚══════════════════════════════════════════╝
 const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+const TelegramBot = require('node-telegram-bot-api');
 
-// ╔════════════════════════════════╗
-// ║ ⚙️ Настройки и переменные ENV ║
-// ╚════════════════════════════════╝
+dotenv.config();
+
+const memoryPath = path.join(__dirname, 'memory');
+const usersPath = path.join(__dirname, 'users.json');
+const envPath = path.join(__dirname, '.env');
+const lockPath = path.join(memoryPath, 'botEnabled.lock');
+
+// ┌──────────────────────────────────────────┐
+// │ 📂 Проверка и создание окружения        │
+// └──────────────────────────────────────────┘
+if (!fs.existsSync(memoryPath)) {
+  fs.mkdirSync(memoryPath);
+  console.log('📁 memory/ создана');
+}
+
+if (!fs.existsSync(envPath)) {
+  console.log('⚠️ Не найден .env — добавь TELEGRAM_TOKEN');
+}
+
+if (!fs.existsSync(usersPath)) {
+  fs.writeFileSync(usersPath, JSON.stringify({}, null, 2));
+  console.log('👥 users.json создан');
+}
+
+if (!fs.existsSync(lockPath)) {
+  fs.writeFileSync(lockPath, 'enabled');
+  console.log('🔓 botEnabled.lock активирован');
+}
+
+console.log('🟢 Старт инженерной консоли GENESIS');
+
+// ╔══════════════════════════════════════════╗
+// ║ 🚦 Статус и логика запуска Telegram Bot ║
+// ╚══════════════════════════════════════════╝
 const TOKEN = process.env.TELEGRAM_TOKEN;
-const botEnabledFlag = './memory/botEnabled.lock'; // ← флаг активности
+if (!TOKEN) {
+  console.error('❌ TELEGRAM_TOKEN не найден в .env');
+  process.exit();
+}
 
 let launched = false;
-
-// ╔════════════════════════════════════════╗
-// ║ 🛡️ Проверка состояния и запуск polling ║
-// ╚════════════════════════════════════════╝
 function isBotEnabled() {
-  return fs.existsSync(botEnabledFlag);
+  return fs.existsSync(lockPath);
 }
 
-function activateBotFlag() {
-  fs.writeFileSync(botEnabledFlag, 'enabled');
-}
-
-function deactivateBotFlag() {
-  if (fs.existsSync(botEnabledFlag)) fs.unlinkSync(botEnabledFlag);
-}
-
-async function launchBot() {
+// ╔═════════════════════════════════╗
+// ║ 🤖 Запуск Telegram polling      ║
+// ╚═════════════════════════════════╝
+function launchBot() {
   if (launched) {
     console.log('⛔ Бот уже запущен. Повторный запуск запрещён.');
     return;
@@ -43,15 +68,15 @@ async function launchBot() {
   const bot = new TelegramBot(TOKEN, { polling: true });
 
   bot.getMe().then((me) => {
-    console.log(`✅ GENESIS Бот активен как @${me.username}`);
+    console.log(`✅ GENESIS активен как @${me.username}`);
     launched = true;
   });
 
-  // ╔═══════════════════════════╗
-  // ║ 💬 Обработка команд       ║
-  // ╚═══════════════════════════╝
+  // ╔═════════════════════════════════╗
+  // ║ 🎮 Обработка команд управления ║
+  // ╚═════════════════════════════════╝
   bot.onText(/\/status/, (msg) => {
-    bot.sendMessage(msg.chat.id, `📊 Статус: бот ${launched ? 'запущен' : 'остановлен'}\nАктивен: ${isBotEnabled()}`);
+    bot.sendMessage(msg.chat.id, `📊 Статус:\n- Запущен: ${launched}\n- Активен: ${isBotEnabled()}\n- Юзеров: ${getUserCount()}`);
   });
 
   bot.onText(/\/poweroff/, (msg) => {
@@ -63,7 +88,7 @@ async function launchBot() {
   bot.onText(/\/poweron/, (msg) => {
     if (!isBotEnabled()) {
       activateBotFlag();
-      bot.sendMessage(msg.chat.id, '✅ Бот снова включён. Перезапустите для polling.');
+      bot.sendMessage(msg.chat.id, '✅ Бот включён. Перезапустите для polling.');
     } else {
       bot.sendMessage(msg.chat.id, '⚠️ Бот уже включён.');
     }
@@ -81,9 +106,32 @@ async function launchBot() {
   });
 }
 
-// ╔═════════════════════════════════════════════╗
-// ║ 📂 Старт последовательности GENESIS_BOOT.1 ║
-// ╚═════════════════════════════════════════════╝
-if (!fs.existsSync('./memory')) fs.mkdirSync('./memory');
+// ╔══════════════════════════════════╗
+// ║ 🧾 Работа с users.json           ║
+// ╚══════════════════════════════════╝
+function getUserCount() {
+  try {
+    const raw = fs.readFileSync(usersPath, 'utf8');
+    const data = JSON.parse(raw);
+    return Object.keys(data).length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// ╔══════════════════════════════════╗
+// ║ 🗝️ Работа с botEnabled.lock      ║
+// ╚══════════════════════════════════╝
+function activateBotFlag() {
+  fs.writeFileSync(lockPath, 'enabled');
+}
+
+function deactivateBotFlag() {
+  if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+}
+
+// ╔══════════════════════════════════╗
+// ║ 🚀 Инициализация GENESIS_BOOT.1 ║
+// ╚══════════════════════════════════╝
 activateBotFlag();
 launchBot();
