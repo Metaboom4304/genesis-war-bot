@@ -5,11 +5,33 @@ const fs = require('fs');
 const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 
-dotenv.config();
+// ╔══════════════════════════════════════════════╗
+// ║ 🛡️ ENV GUARD: Защита инженерной среды        ║
+// ╚══════════════════════════════════════════════╝
+const requiredEnv = ['TELEGRAM_TOKEN', 'ADMIN_ID'];
+let envValid = true;
+
+console.log('\n🧭 Инициализация GENESIS_LAUNCHER...');
+for (const key of requiredEnv) {
+  const value = process.env[key];
+  if (!value) {
+    console.log(`🔴 ENV отсутствует: ${key} — проверь Railway > Variables`);
+    envValid = false;
+  } else {
+    const preview = value.slice(0, 6) + '...';
+    console.log(`🟢 ${key} активен: ${preview}`);
+  }
+}
+
+if (!envValid) {
+  console.log('\n⛔️ Остановка: необходимые ENV переменные не заданы');
+  process.exit(1);
+}
+
+console.log('\n✅ ENV защита пройдена. Запуск продолжается...\n');
 
 const memoryPath = path.join(__dirname, 'memory');
 const usersPath = path.join(__dirname, 'users.json');
-const envPath = path.join(__dirname, '.env');
 const lockPath = path.join(memoryPath, 'botEnabled.lock');
 
 // ┌──────────────────────────────────────────┐
@@ -18,10 +40,6 @@ const lockPath = path.join(memoryPath, 'botEnabled.lock');
 if (!fs.existsSync(memoryPath)) {
   fs.mkdirSync(memoryPath);
   console.log('📁 memory/ создана');
-}
-
-if (!fs.existsSync(envPath)) {
-  console.log('⚠️ Не найден .env — добавь TELEGRAM_TOKEN');
 }
 
 if (!fs.existsSync(usersPath)) {
@@ -40,12 +58,8 @@ console.log('🟢 Старт инженерной консоли GENESIS');
 // ║ 🚦 Статус и логика запуска Telegram Bot ║
 // ╚══════════════════════════════════════════╝
 const TOKEN = process.env.TELEGRAM_TOKEN;
-if (!TOKEN) {
-  console.error('❌ TELEGRAM_TOKEN не найден в .env');
-  process.exit();
-}
-
 let launched = false;
+
 function isBotEnabled() {
   return fs.existsSync(lockPath);
 }
