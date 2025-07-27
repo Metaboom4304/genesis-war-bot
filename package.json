@@ -2,8 +2,9 @@
   "name": "nodejs",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "GENESIS_LAUNCHER.js",
   "scripts": {
+    "start": "node GENESIS_LAUNCHER.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
