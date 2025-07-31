@@ -50,9 +50,9 @@ function deactivateBotFlag(){
   if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
 }
 
-/**
- * Регистрирует пользователя в users.json
- */
+// ╔══════════════════════════════════════╗
+// ║ 🧾 Работа с users.json                ║
+// ╚══════════════════════════════════════╝
 function registerUser(userId) {
   userId = String(userId);
   try {
@@ -68,9 +68,6 @@ function registerUser(userId) {
   }
 }
 
-/**
- * Проверяет, есть ли пользователь в базе
- */
 function isRegistered(userId) {
   userId = String(userId);
   try {
@@ -82,9 +79,6 @@ function isRegistered(userId) {
   }
 }
 
-/**
- * Возвращает количество пользователей
- */
 function getUserCount() {
   try {
     const raw   = fs.readFileSync(usersPath, 'utf8');
@@ -95,18 +89,31 @@ function getUserCount() {
   }
 }
 
-/**
- * Рассылает сообщение всем зарегистрированным
- */
-function broadcastAll(bot, message) {
+// ╔══════════════════════════════════════╗
+// ║ 📣 Рассылка и логика broadcast        ║
+// ╚══════════════════════════════════════╝
+async function broadcastAll(bot, message) {
   let users = {};
   try {
-    const raw = fs.readFileSync(usersPath, 'utf8');
-    users = JSON.parse(raw);
-  } catch {}
+    users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+  } catch { /* ignore */ }
+
   for (const uid of Object.keys(users)) {
-    bot.sendMessage(uid, `📣 Объявление:\n${message}`);
+    try {
+      await bot.sendMessage(uid, `📣 Объявление:\n${message}`);
+    } catch (err) {
+      console.error(`⚠️ Не удалось отправить ${uid}:`, err.response?.body || err);
+      // при 403 – удаляем из списка
+      if (err.response?.statusCode === 403) {
+        delete users[uid];
+        console.log(`🗑 Удалён заблокировавший бот пользователь: ${uid}`);
+      }
+    }
   }
+  // сохраняем обновлённый список
+  try {
+    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+  } catch {}
 }
 
 // ╔═════════════════════════════════╗
@@ -116,111 +123,115 @@ activateBotFlag();
 const bot = new TelegramBot(TOKEN, { polling: true });
 let launched = false;
 
+// глобальный обработчик ошибок API
+bot.on('error', err => {
+  console.error('💥 Telegram API error:', err.code, err.response?.body || err);
+});
+bot.on('polling_error', err =>
+  console.error('📡 Polling error:', err.code, err.response?.body || err)
+);
+
+// логируем все входящие сообщения
+bot.on('message', msg => {
+  console.log(`📨 [${msg.chat.id}] ${msg.from.username || 'unknown'}: ${msg.text}`);
+});
+
 bot.getMe().then(me => {
   console.log(`✅ GENESIS активен как @${me.username}`);
   launched = true;
 });
 
 // ╔═══════════════════════════════════╗
-// ║ 🏠 Главное меню (комбинированное)  ║
+// ║ 🏠 Главное меню (общее)            ║
 // ╚═══════════════════════════════════╝
 function sendMainMenu(bot, chatId, uid) {
   uid = String(uid);
-
-  // пользовательские кнопки
-  const userKeyboard = [
+  const userKb = [
     [{ text: '🧾 Info',     callback_data: 'info' }],
     [{ text: '🛣️ Roadmap', callback_data: 'roadmap' }],
     [{ text: '🌐 Ссылки',   callback_data: 'links' }],
-    // карта теперь URL-кнопка
     [{ text: '🗺️ Карта',    url: 'https://metaboom4304.github.io/genesis-data/' }],
     [{ text: '❓ Помощь',    callback_data: 'help' }]
   ];
 
-  // админские кнопки только для ADMIN_ID
-  const adminKeyboard = uid === ADMIN_ID
+  const adminKb = uid === ADMIN_ID
     ? [
-        [{ text: '📃 Логи',               callback_data: 'logs' }],
-        [{ text: '🟢 Включить карту',     callback_data: 'map_enable' }],
-        [{ text: '⚠️ Отключить карту',    callback_data: 'map_disable_confirm' }],
-        [{ text: '👥 Добавить админа',     callback_data: 'add_admin' }],
-        [{ text: '📑 Список админов',      callback_data: 'list_admins' }],
-        [{ text: '📢 Рассылка',           callback_data: 'broadcast' }]
+        [{ text: '📃 Логи',            callback_data: 'logs' }],
+        [{ text: '🟢 Включить карту',  callback_data: 'map_enable' }],
+        [{ text: '⚠️ Выключить карту', callback_data: 'map_disable_confirm' }],
+        [{ text: '👥 Добавить админа',  callback_data: 'add_admin' }],
+        [{ text: '📑 Список админов',   callback_data: 'list_admins' }],
+        [{ text: '📢 Рассылка',         callback_data: 'broadcast' }]
       ]
     : [];
 
-  // объединяем
-  const fullKeyboard = [...userKeyboard, ...adminKeyboard];
-
   bot.sendMessage(chatId, '🏠 Главное меню', {
-    reply_markup: { inline_keyboard: fullKeyboard }
-  });
+    reply_markup: { inline_keyboard: [...userKb, ...adminKb] }
+  }).catch(console.error);
 }
 
 // ╔═══════════════════════════════════╗
-// ║ ⚙️ Стандартные команды            ║  
+// ║ ⚙️ Стандартные команды            ║
 // ╚═══════════════════════════════════╝
 
-// /start — регистрируем и сразу шлём меню внизу
-bot.onText(/\/start/, (msg) => {
+// /start — регистрация + меню
+bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
-  const uid    = String(msg.from.id);
-
+  const uid    = msg.from.id;
   registerUser(uid);
   bot.sendMessage(chatId, '🚀 Добро пожаловать! Вы успешно зарегистрированы.')
-    .then(() => sendMainMenu(bot, chatId, uid));
+    .then(() => sendMainMenu(bot, chatId, uid))
+    .catch(console.error);
 });
 
-// /help — краткое описание
-bot.onText(/\/help/, (msg) => {
+// /help — справка
+bot.onText(/\/help/, msg => {
   bot.sendMessage(msg.chat.id,
     '📖 Команды:\n' +
-    '/start — регистрация и меню\n' +
-    '/status — проверить состояние\n' +
-    '/menu — показать меню снизу\n' +
-    '/poweroff, /poweron, /restart — управление ботом'
-  );
+    '/start — регистрация + меню\n' +
+    '/status — состояние бота\n' +
+    '/menu — показать меню\n' +
+    '/poweroff, /poweron, /restart — управление (админ)'
+  ).catch(console.error);
 });
 
-// /status
-bot.onText(/\/status/, (msg) => {
+// /status — инфо о боте
+bot.onText(/\/status/, msg => {
   bot.sendMessage(msg.chat.id,
     `📊 Статус:\n- Запущен: ${launched}\n- Активен: ${isBotEnabled()}\n- Юзеров: ${getUserCount()}`
-  );
+  ).catch(console.error);
 });
 
-// /menu — повторный вывод меню внизу
-bot.onText(/\/menu/, (msg) => {
+// /menu — меню без регистрации
+bot.onText(/\/menu/, msg => {
   sendMainMenu(bot, msg.chat.id, msg.from.id);
 });
 
 // power commands
-bot.onText(/\/poweroff/, (msg) => {
+bot.onText(/\/poweroff/, msg => {
   deactivateBotFlag();
-  bot.sendMessage(msg.chat.id, '🛑 Бот остановлен.').then(() => process.exit());
+  bot.sendMessage(msg.chat.id, '🛑 Бот остановлен.').then(() => process.exit(0)).catch(console.error);
 });
 
-bot.onText(/\/poweron/, (msg) => {
+bot.onText(/\/poweron/, msg => {
   if (!isBotEnabled()) {
     activateBotFlag();
-    bot.sendMessage(msg.chat.id, '✅ Бот включён. Перезапустите.');
+    bot.sendMessage(msg.chat.id, '✅ Бот включён. Перезапустите.').catch(console.error);
   } else {
-    bot.sendMessage(msg.chat.id, '⚠️ Уже активен.');
+    bot.sendMessage(msg.chat.id, '⚠️ Уже активен.').catch(console.error);
   }
 });
 
-bot.onText(/\/restart/, (msg) => {
+bot.onText(/\/restart/, msg => {
   deactivateBotFlag();
   activateBotFlag();
-  bot.sendMessage(msg.chat.id, '🔄 Перезапуск…').then(() => process.exit());
+  bot.sendMessage(msg.chat.id, '🔄 Перезапуск…')
+    .then(() => process.exit(0))
+    .catch(console.error);
 });
 
-bot.on('polling_error', err =>
-  console.error('📡 Polling error:', err.message)
-);
-
 // ╔═══════════════════════════════════╗
-// ║ 🎮 Обработка inline-кнопок       ║  
+// ║ 🎮 Обработка inline-кнопок       ║
 // ╚═══════════════════════════════════╝
 const broadcastPending = new Set();
 
@@ -234,33 +245,33 @@ bot.on('callback_query', query => {
   switch (data) {
     // пользовательские
     case 'info':
-      bot.sendMessage(chatId, '🧾 Версия: 1.0.0\n👨‍💻 Авторы: команда GENESIS');
+      bot.sendMessage(chatId, '🧾 Версия: 1.0.0\n👨‍💻 Авторы: GENESIS').catch(console.error);
       break;
     case 'roadmap':
       bot.sendMessage(chatId,
-        '🛣️ Roadmap:\n1. Запуск\n2. Технические обновления\n3. Новые фичи'
-      );
+        '🛣️ Roadmap:\n1. Запуск\n2. Обновления\n3. Новые фичи'
+      ).catch(console.error);
       break;
     case 'links':
-      bot.sendMessage(chatId, '🌐 Сайт: https://example.com');
+      bot.sendMessage(chatId, '🌐 Сайт: https://example.com').catch(console.error);
       break;
     case 'help':
       bot.sendMessage(chatId,
         '📖 Помощь:\n' +
         '- /start — регистрация и меню\n' +
-        '- /status — статус бота\n' +
-        '- /menu — меню снизу'
-      );
+        '- /status — состояние\n' +
+        '- /menu — меню'
+      ).catch(console.error);
       break;
 
     // админские
     case 'logs':
       if (uid === ADMIN_ID)
-        bot.sendMessage(chatId, '📄 Логи карты: тайлов 344/500, ошибок 0');
+        bot.sendMessage(chatId, '📄 Логи: тайлов 344/500, ошибок 0').catch(console.error);
       break;
     case 'map_enable':
       if (uid === ADMIN_ID)
-        bot.sendMessage(chatId, '🟢 Карта включена.');
+        bot.sendMessage(chatId, '🟢 Карта включена.').catch(console.error);
       break;
     case 'map_disable_confirm':
       if (uid === ADMIN_ID) {
@@ -270,13 +281,13 @@ bot.on('callback_query', query => {
               { text: '✅ Подтвердить', callback_data: 'map_disable_final' }
             ]]
           }
-        });
+        }).catch(console.error);
       }
       break;
     case 'map_disable_final':
       if (uid === ADMIN_ID) {
         deactivateBotFlag();
-        bot.sendMessage(chatId, '🛑 Карта отключена. Пользователи уведомлены.');
+        bot.sendMessage(chatId, '🛑 Карта отключена. Пользователи уведомлены.').catch(console.error);
         broadcastAll(bot,
           '⛔ Карта временно отключена для техработ.\nСкоро вернёмся!'
         );
@@ -284,11 +295,11 @@ bot.on('callback_query', query => {
       break;
     case 'add_admin':
       if (uid === ADMIN_ID)
-        bot.sendMessage(chatId, '👤 Назначение админа в разработке.');
+        bot.sendMessage(chatId, '👥 Назначение админа в разработке.').catch(console.error);
       break;
     case 'list_admins':
       if (uid === ADMIN_ID)
-        bot.sendMessage(chatId, `📃 Текущий админ: ${ADMIN_ID}`);
+        bot.sendMessage(chatId, `📑 Админы: ${ADMIN_ID}`).catch(console.error);
       break;
     case 'broadcast':
       if (uid === ADMIN_ID) {
@@ -296,27 +307,26 @@ bot.on('callback_query', query => {
         bot.sendMessage(chatId,
           '✏️ Напишите текст для рассылки:',
           { reply_markup: { force_reply: true } }
-        );
+        ).catch(console.error);
       }
       break;
-
     default:
-      bot.sendMessage(chatId, '🤔 Неизвестная кнопка.');
+      bot.sendMessage(chatId, '🤔 Неизвестная команда.').catch(console.error);
   }
 });
 
 // ╔══════════════════════════════════════════╗
-// ║ 📨 Обработка ответов (broadcast)        ║  
+// ║ 📨 Обработка ответов (broadcast)        ║
 // ╚══════════════════════════════════════════╝
-bot.on('message', msg => {
+bot.on('message', async msg => {
   const uid = String(msg.from.id);
   if (
     broadcastPending.has(uid) &&
     msg.reply_to_message?.text.includes('Напишите текст для рассылки')
   ) {
     broadcastPending.delete(uid);
-    broadcastAll(bot, msg.text);
-    bot.sendMessage(uid, '✅ Рассылка выполнена.');
+    await broadcastAll(bot, msg.text);
+    bot.sendMessage(uid, '✅ Рассылка выполнена.').catch(console.error);
   }
 });
 
