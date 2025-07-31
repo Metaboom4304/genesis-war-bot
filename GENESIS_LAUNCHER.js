@@ -56,8 +56,7 @@ function deactivateBotFlag(){
 function registerUser(userId) {
   userId = String(userId);
   try {
-    const raw   = fs.readFileSync(usersPath, 'utf8');
-    const users = JSON.parse(raw);
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
     if (!users[userId]) {
       users[userId] = { registered: true, ts: Date.now() };
       fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
@@ -71,8 +70,7 @@ function registerUser(userId) {
 function isRegistered(userId) {
   userId = String(userId);
   try {
-    const raw   = fs.readFileSync(usersPath, 'utf8');
-    const users = JSON.parse(raw);
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
     return Boolean(users[userId]);
   } catch {
     return false;
@@ -81,8 +79,7 @@ function isRegistered(userId) {
 
 function getUserCount() {
   try {
-    const raw   = fs.readFileSync(usersPath, 'utf8');
-    const users = JSON.parse(raw);
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
     return Object.keys(users).length;
   } catch {
     return 0;
@@ -96,21 +93,18 @@ async function broadcastAll(bot, message) {
   let users = {};
   try {
     users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-  } catch { /* ignore */ }
-
+  } catch {}
   for (const uid of Object.keys(users)) {
     try {
       await bot.sendMessage(uid, `📣 Объявление:\n${message}`);
     } catch (err) {
       console.error(`⚠️ Не удалось отправить ${uid}:`, err.response?.body || err);
-      // при 403 – удаляем из списка
       if (err.response?.statusCode === 403) {
         delete users[uid];
         console.log(`🗑 Удалён заблокировавший бот пользователь: ${uid}`);
       }
     }
   }
-  // сохраняем обновлённый список
   try {
     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
   } catch {}
@@ -123,7 +117,6 @@ activateBotFlag();
 const bot = new TelegramBot(TOKEN, { polling: true });
 let launched = false;
 
-// глобальный обработчик ошибок API
 bot.on('error', err => {
   console.error('💥 Telegram API error:', err.code, err.response?.body || err);
 });
@@ -131,7 +124,6 @@ bot.on('polling_error', err =>
   console.error('📡 Polling error:', err.code, err.response?.body || err)
 );
 
-// логируем все входящие сообщения
 bot.on('message', msg => {
   console.log(`📨 [${msg.chat.id}] ${msg.from.username || 'unknown'}: ${msg.text}`);
 });
@@ -144,8 +136,9 @@ bot.getMe().then(me => {
 // ╔═══════════════════════════════════╗
 // ║ 🏠 Главное меню (общее)            ║
 // ╚═══════════════════════════════════╝
-function sendMainMenu(bot, chatId, uid) {
+function sendMainMenu(bot, chatId, uid, text = '🏠 Главное меню') {
   uid = String(uid);
+
   const userKb = [
     [{ text: '🧾 Info',     callback_data: 'info' }],
     [{ text: '🛣️ Roadmap', callback_data: 'roadmap' }],
@@ -165,7 +158,7 @@ function sendMainMenu(bot, chatId, uid) {
       ]
     : [];
 
-  bot.sendMessage(chatId, '🏠 Главное меню', {
+  bot.sendMessage(chatId, text, {
     reply_markup: { inline_keyboard: [...userKb, ...adminKb] }
   }).catch(console.error);
 }
@@ -174,35 +167,39 @@ function sendMainMenu(bot, chatId, uid) {
 // ║ ⚙️ Стандартные команды            ║
 // ╚═══════════════════════════════════╝
 
-// /start — регистрация + меню
+// /start — регистрация + меню в одном сообщении
 bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id;
   const uid    = msg.from.id;
   registerUser(uid);
-  bot.sendMessage(chatId, '🚀 Добро пожаловать! Вы успешно зарегистрированы.')
-    .then(() => sendMainMenu(bot, chatId, uid))
-    .catch(console.error);
+  sendMainMenu(bot,
+    chatId,
+    uid,
+    '🚀 Добро пожаловать! Вы успешно зарегистрированы.'
+  );
 });
 
-// /help — справка
+// /help
 bot.onText(/\/help/, msg => {
-  bot.sendMessage(msg.chat.id,
+  sendMainMenu(bot,
+    msg.chat.id,
+    msg.from.id,
     '📖 Команды:\n' +
     '/start — регистрация + меню\n' +
     '/status — состояние бота\n' +
-    '/menu — показать меню\n' +
+    '/menu — меню снизу\n' +
     '/poweroff, /poweron, /restart — управление (админ)'
-  ).catch(console.error);
+  );
 });
 
-// /status — инфо о боте
+// /status — без кнопок
 bot.onText(/\/status/, msg => {
   bot.sendMessage(msg.chat.id,
     `📊 Статус:\n- Запущен: ${launched}\n- Активен: ${isBotEnabled()}\n- Юзеров: ${getUserCount()}`
   ).catch(console.error);
 });
 
-// /menu — меню без регистрации
+// /menu — меню снизу
 bot.onText(/\/menu/, msg => {
   sendMainMenu(bot, msg.chat.id, msg.from.id);
 });
@@ -231,7 +228,7 @@ bot.onText(/\/restart/, msg => {
 });
 
 // ╔═══════════════════════════════════╗
-// ║ 🎮 Обработка inline-кнопок       ║
+// ║ 🎮 Обработка inline-кнопок       ║  
 // ╚═══════════════════════════════════╝
 const broadcastPending = new Set();
 
@@ -243,7 +240,7 @@ bot.on('callback_query', query => {
   bot.answerCallbackQuery(query.id).catch(console.error);
 
   switch (data) {
-    // пользовательские
+    // user
     case 'info':
       bot.sendMessage(chatId, '🧾 Версия: 1.0.0\n👨‍💻 Авторы: GENESIS').catch(console.error);
       break;
@@ -258,13 +255,13 @@ bot.on('callback_query', query => {
     case 'help':
       bot.sendMessage(chatId,
         '📖 Помощь:\n' +
-        '- /start — регистрация и меню\n' +
+        '- /start — регистрация + меню\n' +
         '- /status — состояние\n' +
         '- /menu — меню'
       ).catch(console.error);
       break;
 
-    // админские
+    // admin
     case 'logs':
       if (uid === ADMIN_ID)
         bot.sendMessage(chatId, '📄 Логи: тайлов 344/500, ошибок 0').catch(console.error);
@@ -316,7 +313,7 @@ bot.on('callback_query', query => {
 });
 
 // ╔══════════════════════════════════════════╗
-// ║ 📨 Обработка ответов (broadcast)        ║
+// ║ 📨 Обработка ответов (broadcast)        ║  
 // ╚══════════════════════════════════════════╝
 bot.on('message', async msg => {
   const uid = String(msg.from.id);
