@@ -112,24 +112,49 @@ bot.getMe().then(me => {
 // ╔═══════════════════════════════════╗
 // ║ ⚙️ Стандартные команды            ║
 // ╚═══════════════════════════════════╝
+
+// /start — регистрация и вывод меню
+bot.onText(/\/start/, (msg) => {
+  const uid = String(msg.from.id);
+  registerUser(uid);
+  bot.sendMessage(msg.chat.id, '🚀 Добро пожаловать! Вы успешно зарегистрированы.');
+  sendUserMenu(bot, msg.chat.id);
+  sendAdminMenu(bot, msg.chat.id, uid);
+});
+
+// /help — краткая справка по командам
+bot.onText(/\/help/, (msg) => {
+  bot.sendMessage(msg.chat.id,
+    '📖 Доступные команды:\n' +
+    '/start — регистрация и меню\n' +
+    '/status — статус бота\n' +
+    '/menu — кнопочное меню\n' +
+    '/poweroff, /poweron, /restart — управление (только админ)'
+  );
+});
+
+// /status — вывод текущего состояния
 bot.onText(/\/status/, (msg) => {
   bot.sendMessage(msg.chat.id,
     `📊 Статус:\n- Запущен: ${launched}\n- Активен: ${isBotEnabled()}\n- Юзеров: ${getUserCount()}`
   );
 });
 
+// /menu — повторный показ inline-меню
 bot.onText(/\/menu/, (msg) => {
-  const uid = msg.from.id;
+  const uid = String(msg.from.id);
   sendUserMenu(bot, msg.chat.id);
   sendAdminMenu(bot, msg.chat.id, uid);
 });
 
+// /poweroff — остановка бота
 bot.onText(/\/poweroff/, (msg) => {
   deactivateBotFlag();
   bot.sendMessage(msg.chat.id, '🛑 Бот остановлен. polling завершается…');
   process.exit();
 });
 
+// /poweron — включение бота
 bot.onText(/\/poweron/, (msg) => {
   if (!isBotEnabled()) {
     activateBotFlag();
@@ -139,6 +164,7 @@ bot.onText(/\/poweron/, (msg) => {
   }
 });
 
+// /restart — перезапуск бота
 bot.onText(/\/restart/, (msg) => {
   deactivateBotFlag();
   activateBotFlag();
@@ -150,15 +176,18 @@ bot.on('polling_error', err =>
   console.error('📡 Polling error:', err.message)
 );
 
-// ╔═══════════════════════════════════╗
+// ╔══════════════════════════════════════════╗
 // ║ 🎮 Обработка нажатий inline-кнопок║
-// ╚═══════════════════════════════════╝
+// ╚══════════════════════════════════════════╝
 const broadcastPending = new Set();
 
 bot.on('callback_query', query => {
   const chatId = query.message.chat.id;
   const uid    = String(query.from.id);
   const data   = query.data;
+
+  // отвечаем, чтобы снять «загрузку» в интерфейсе
+  bot.answerCallbackQuery(query.id).catch(console.error);
 
   switch (data) {
     // Пользовательские кнопки
@@ -268,9 +297,13 @@ bot.on('callback_query', query => {
 // ╚══════════════════════════════════════════╝
 bot.on('message', msg => {
   const uid = String(msg.from.id);
-  if (broadcastPending.has(uid) && msg.reply_to_message?.text.includes('Напишите текст для рассылки')) {
+  if (broadcastPending.has(uid)
+    && msg.reply_to_message?.text.includes('Напишите текст для рассылки')
+  ) {
     broadcastPending.delete(uid);
     broadcastAll(bot, msg.text);
     bot.sendMessage(uid, '✅ Рассылка выполнена.');
   }
 });
+
+module.exports = bot;
