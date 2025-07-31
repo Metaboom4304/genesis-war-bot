@@ -100,6 +100,10 @@ activateBotFlag();
 const bot = new TelegramBot(TOKEN, { polling: true });
 let launched = false;
 
+bot.on('message', (msg) => {
+  console.log(`📨 Получено сообщение: ${msg.text}`);
+});
+
 bot.getMe().then(me => {
   console.log(`✅ GENESIS активен как @${me.username}`);
   launched = true;
