@@ -1,16 +1,17 @@
 {
-  "name": "nodejs",
+  "name": "genesis-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Telegram bot for controlling Genesis map visibility",
   "main": "GENESIS_LAUNCHER.js",
   "scripts": {
     "start": "node GENESIS_LAUNCHER.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["telegram", "genesis", "map", "bot"],
+  "author": "Karnegie",
   "license": "ISC",
   "dependencies": {
+    "@octokit/rest": "^20.0.0",
     "@types/node": "^22.13.11",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
