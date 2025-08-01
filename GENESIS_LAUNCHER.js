@@ -341,8 +341,15 @@ bot.on('message', async msg => {
       break
 
     case '🌐 Ссылки':
-      bot.sendMessage(chatId, '🌐 Ссылка: https://metaboom.ai/links')
-      break
+  bot.sendMessage(chatId,
+    '🧭 Официальные ресурсы Genesis:\n\n' +
+    '🏗️ Строения мира:\nhttps://back.genesis-of-ages.space/info/builds.php\n\n' +
+    '⚙️ Артефакты и технологии:\nhttps://back.genesis-of-ages.space/info/tech.php\n\n' +
+    '💬 Официальный чат:\nhttps://t.me/gao_chat\n\n' +
+    '🎮 Сайт игры:\nhttps://back.genesis-of-ages.space/game/\n\n' +
+    '🔗 Больше скоро…'
+  )
+  break
 
     case '🗺️ Карта':
       // проверяем состояние remote перед отправкой?
