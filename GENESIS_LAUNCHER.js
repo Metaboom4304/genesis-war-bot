@@ -99,7 +99,6 @@ async function broadcastAll(bot, message) {
       await bot.sendMessage(uid, message)
     } catch(err) {
       console.error(`⚠️ Не удалось отправить ${uid}:`, err.response?.body||err)
-      // удаляем заблокировавших бота
       if (err.response?.statusCode === 403) {
         delete users[uid]
         console.log(`🗑 Удалён пользователь ${uid}`)
@@ -126,17 +125,9 @@ async function fetchMapStatus() {
 }
 
 async function updateMapStatus({ enabled, message, theme='auto', disableUntil }) {
-  // получаем SHA и текущее тело
-  const { sha, status } = await fetchMapStatus()
-  // формируем новый JSON
-  const newStatus = {
-    enabled,
-    message,
-    theme,
-    disableUntil
-  }
+  const { sha } = await fetchMapStatus()
+  const newStatus = { enabled, message, theme, disableUntil }
   const content = Buffer.from(JSON.stringify(newStatus,null,2)).toString('base64')
-  // коммитим в репозиторий
   await octokit.repos.createOrUpdateFileContents({
     owner:   GITHUB_OWNER,
     repo:    GITHUB_REPO,
@@ -301,27 +292,27 @@ bot.on('message', async msg => {
   ) {
     disablePending.delete(uid)
 
-    // обновляем map-status.json на GitHub
-    const disableMsg = 
+    const disableMsg =
       '🔒 Genesis временно отключён.\n' +
       'Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n' +
       '📍Скоро включим радар.'
-    await updateMapStatus({
-      enabled:       false,
-      message:       disableMsg,
-      theme:         'auto',
-      disableUntil:  new Date().toISOString()
-    })
 
-    // локально блокируем ссылку
-    // (по желанию, можно убрать локальный lockPath и проверять только remote)
+    // обновляем map-status.json на GitHub
+    try {
+      await updateMapStatus({
+        enabled:       false,
+        message:       disableMsg,
+        theme:         'auto',
+        disableUntil:  new Date().toISOString()
+      })
+    } catch(err) {
+      console.error('🛑 Ошибка при отключении карты:', err)
+      await bot.sendMessage(chatId, '❌ Не удалось отключить карту.')
+      return sendReplyMenu(bot, chatId, uid)
+    }
 
     // уведомляем пользователей
-    await broadcastAll(bot,
-      `🔒 Genesis временно отключён.\n` +
-      `Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n` +
-      `📍Скоро включим радар.`
-    )
+    await broadcastAll(bot, disableMsg)
 
     bot.sendMessage(chatId, '✅ Карта отключена и все уведомлены.')
       .then(() => sendReplyMenu(bot, chatId, uid))
@@ -341,19 +332,17 @@ bot.on('message', async msg => {
       break
 
     case '🌐 Ссылки':
-  bot.sendMessage(chatId,
-    '🧭 Официальные ресурсы Genesis:\n\n' +
-    '🏗️ Строения мира:\nhttps://back.genesis-of-ages.space/info/builds.php\n\n' +
-    '⚙️ Артефакты и технологии:\nhttps://back.genesis-of-ages.space/info/tech.php\n\n' +
-    '💬 Официальный чат:\nhttps://t.me/gao_chat\n\n' +
-    '🎮 Сайт игры:\nhttps://back.genesis-of-ages.space/game/\n\n' +
-    '🔗 Больше скоро…'
-  )
-  break
+      bot.sendMessage(chatId,
+        '🧭 Официальные ресурсы Genesis:\n\n' +
+        '🏗️ Строения мира:\nhttps://back.genesis-of-ages.space/info/builds.php\n\n' +
+        '⚙️ Артефакты и технологии:\nhttps://back.genesis-of-ages.space/info/tech.php\n\n' +
+        '💬 Официальный чат:\nhttps://t.me/gao_chat\n\n' +
+        '🎮 Сайт игры:\nhttps://back.genesis-of-ages.space/game/\n\n' +
+        '🔗 Больше скоро…'
+      )
+      break
 
     case '🗺️ Карта':
-      // проверяем состояние remote перед отправкой?
-      // Можно оптимизировать: fetchMapStatus().status.enabled
       bot.sendMessage(chatId,
         '🌍 Карта: https://metaboom4304.github.io/genesis-data/'
       )
@@ -396,15 +385,19 @@ bot.on('message', async msg => {
 
     case '🟢 Включить карту':
       if (uid === ADMIN_ID) {
-        // обновляем remote и локальный
         const enableMsg = '🔓 Genesis сейчас в эфире!'
-        await updateMapStatus({
-          enabled:       true,
-          message:       enableMsg,
-          theme:         'auto',
-          disableUntil:  new Date().toISOString()
-        })
-        await bot.sendMessage(chatId, '✅ Карта включена. Все снова подключены.')
+        try {
+          await updateMapStatus({
+            enabled:       true,
+            message:       enableMsg,
+            theme:         'auto',
+            disableUntil:  new Date().toISOString()
+          })
+          await bot.sendMessage(chatId, '✅ Карта включена. Все снова подключены.')
+        } catch(err) {
+          console.error('🛑 Ошибка при включении карты:', err)
+          await bot.sendMessage(chatId, '❌ Не удалось включить карту.')
+        }
         sendReplyMenu(bot, chatId, uid)
       }
       break
