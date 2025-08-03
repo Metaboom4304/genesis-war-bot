@@ -1,12 +1,18 @@
-FROM node:20-alpine
+# Используем node-образ
+FROM node:18
 
+# Создаем директорию приложения
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# Копируем package.json и package-lock.json
+COPY package.json ./
+COPY package-lock.json ./
 
-RUN test -f package-lock.json && npm ci \
-  && echo "✅ Dependencies synchronized" || { echo "❌ Lockfile missing"; exit 1; }
+# Установка зависимостей
+RUN npm install
 
+# Копируем весь код
 COPY . .
 
-CMD ["npm", "start"]
+# Запускаем бота
+CMD ["node", "GENESIS_LAUNCHER.js"]
