@@ -1,0 +1,8 @@
+{
+  "build": {
+    "command": "docker build -t genesis-war-bot ."
+  },
+  "deploy": {
+    "command": "docker run -p 3000:3000 genesis-war-bot"
+  }
+}
