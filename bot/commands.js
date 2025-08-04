@@ -12,25 +12,65 @@ const {
   getSimulationMode
 } = require('./state');
 
-const DATA_DIR       = path.join(__dirname, '..', 'data');
-const USERS_FILE     = path.join(DATA_DIR, 'users.json');
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CHANGELOG_FILE = path.join(DATA_DIR, 'changelog.json');
-const ROADMAP_FILE   = path.join(DATA_DIR, 'roadmap.json');
-const TILEMAP_FILE   = path.join(DATA_DIR, 'tileMap.json');
+const ROADMAP_FILE = path.join(DATA_DIR, 'roadmap.json');
+const TILEMAP_FILE = path.join(DATA_DIR, 'tileMap.json');
 
 const DEVELOPER_IDS = (process.env.DEVELOPER_IDS || '')
   .split(',')
   .map(id => Number(id.trim()));
+
 function isDev(chatId) {
   return DEVELOPER_IDS.includes(chatId);
 }
 
+// Функция для проверки авторизации
+async function checkAuth(chatId) {
+  try {
+    const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    return users.users.find(user => user.id === chatId);
+  } catch (error) {
+    return false;
+  }
+}
+
+// Функция для сохранения пользователя
+async function saveUser(userId, role = 'user') {
+  try {
+    let users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    const existingUser = users.users.find(user => user.id === userId);
+
+    if (!existingUser) {
+      users.users.push({ id: userId, role: role });
+      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    }
+  } catch (error) {
+    console.error('Ошибка сохранения пользователя:', error);
+  }
+}
+
+// Функция для работы с избранным
+async function handleFavorite(bot, chatId, tileId) {
+  try {
+    // Здесь будет логика работы с избранным
+    safeSend(bot, chatId, `Тайл ${tileId} добавлен в избранное!`);
+  } catch (error) {
+    safeSend(bot, chatId, 'Ошибка при добавлении в избранное.');
+  }
+}
+
 // автоинициализация JSON
-function ensureFile(filePath, defaultContent) { /* ... */ }
-ensureFile(USERS_FILE,     { users: [] });
+function ensureFile(filePath, defaultContent) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(defaultContent, null, 2));
+  }
+}
+ensureFile(USERS_FILE, { users: [] });
 ensureFile(CHANGELOG_FILE, []);
-ensureFile(ROADMAP_FILE,   []);
-ensureFile(TILEMAP_FILE,   { tiles: [] });
+ensureFile(ROADMAP_FILE, []);
+ensureFile(TILEMAP_FILE, { tiles: [] });
 
 // inline-кнопки
 async function handleCallback(bot, query) {
@@ -65,7 +105,13 @@ function sendRoadmap(bot, chatId) {
 // основной хендлер
 async function handleText(bot, msg) {
   const chatId = msg.chat.id;
-  const text   = msg.text.trim();
+  const text = msg.text.trim();
+
+  // Проверка авторизации
+  if (!(await checkAuth(chatId))) {
+    saveUser(chatId); // Авторегистрация пользователя
+    return safeSend(bot, chatId, 'Добро пожаловать! Введите команду для работы с ботом.');
+  }
 
   if (text === '📦 Обновления') {
     return sendChangelog(bot, chatId);
@@ -130,9 +176,16 @@ async function handleText(bot, msg) {
     });
   }
 
+  // Команда для добавления в избранное
+  if (text.startsWith('add_favorite ')) {
+    const tileId = text.split(' ')[1];
+    handleFavorite(bot, chatId, tileId);
+    return;
+  }
+
   // mock-режим
   if (/^\d+$/.test(text) && getSimulationMode()) {
-    const tile   = getMockTile(text);
+    const tile = getMockTile(text);
     const output = formatTile(tile, text);
     return safeSend(bot, chatId, output);
   }
@@ -141,8 +194,7 @@ async function handleText(bot, msg) {
 }
 
 module.exports = { handleCallback, handleText };
-const fs = require('fs');
-const path = require('path');
+
 const configPath = path.join(__dirname, '../config.js');
 
 function reloadConfig() {
