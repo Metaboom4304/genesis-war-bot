@@ -205,7 +205,7 @@ bot.onText(/\/start/, msg => {
   const uid    = msg.from.id
   registerUser(uid)
   sendReplyMenu(bot, chatId, uid,
-    '🚀 Добро пожаловать! Вы успешно зарегистрированы.'
+    '🚀 Добро пожаловать, милорд! Вы успешно зарегистрированы.'
   )
 })
 
@@ -293,7 +293,7 @@ bot.on('message', async msg => {
     disablePending.delete(uid)
 
     const disableMsg =
-      '🔒 Genesis временно отключён.\n' +
+      '🔒 Genesis war map временно отключён.\n' +
       'Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n' +
       '📍Скоро включим радар.'
 
@@ -322,7 +322,7 @@ bot.on('message', async msg => {
   // — обычные кнопки
   switch (text) {
     case '🧾 Info':
-      bot.sendMessage(chatId, '🧾 Версия: 1.0.0\n👨‍💻 Авторы: GENESIS')
+      bot.sendMessage(chatId, '🧾 Версия: b.1.0.0\n👨‍💻 Авторы: Stanford')
       break
 
     case '🛣️ Roadmap':
@@ -344,7 +344,7 @@ bot.on('message', async msg => {
 
     case '🗺️ Карта':
       bot.sendMessage(chatId,
-        '🌍 Карта: https://metaboom4304.github.io/genesis-data/'
+        '🌍 Карта: https://genesis-data.onrender.com'
       )
       break
 
@@ -385,7 +385,7 @@ bot.on('message', async msg => {
 
     case '🟢 Включить карту':
       if (uid === ADMIN_ID) {
-        const enableMsg = '🔓 Genesis сейчас в эфире!'
+        const enableMsg = '🔓 Genesis war map сейчас в эфире!'
         try {
           await updateMapStatus({
             enabled:       true,
