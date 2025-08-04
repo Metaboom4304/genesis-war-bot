@@ -343,9 +343,13 @@ bot.on('message', async msg => {
       break
 
     case '🗺️ Карта':
-      bot.sendMessage(chatId,
-        '🌍 Карта: https://genesis-data.onrender.com'
-      )
+      bot.sendMessage(chatId, '🧭 Открыть карту', {
+  reply_markup: {
+    inline_keyboard: [[
+      { text: '🗺️ Карта', web_app: { url: 'https://genesis-data.onrender.com/index.html' } }
+    ]]
+  }
+});
       break
 
     case '❓ Помощь':
