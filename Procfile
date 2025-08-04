@@ -1,1 +1,1 @@
-web: npm start
+worker: node GENESIS_LAUNCHER.js
