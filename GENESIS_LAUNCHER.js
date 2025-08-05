@@ -1,22 +1,34 @@
-// ╔══════════════════════════════════════════╗
-// ║ 🧠 GENESIS_LAUNCHER — Telegram Control   ║
-// ╚══════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🧩 GENESIS_LAUNCHER — Telegram Control                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
 
-const fs          = require('fs')
-const path        = require('path')
+const fs = require('fs')
+const path = require('path')
+const http = require('http')
 const TelegramBot = require('node-telegram-bot-api')
 const { Octokit } = require('@octokit/rest')
 
-// ╔══════════════════════════════════════════════╗
-// ║ 🛡️ ENV GUARD: Защита инженерной среды        ║
-// ╚══════════════════════════════════════════════╝
-const requiredEnv = [
-  'TELEGRAM_TOKEN', 'ADMIN_ID',
-  'GITHUB_TOKEN', 'GITHUB_OWNER', 'GITHUB_REPO'
-]
-let envValid = true
+// 🔌 Render Port Server — фиктивный HTTP-сервер для обмана Render
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' })
+  res.end('GENESIS Bot active 🛡️')
+}).listen(process.env.PORT || 3000)
 
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🛡️ ENV GUARD: защита инженерной среды                           ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const requiredEnv = [
+  'TELEGRAM_TOKEN',
+  'ADMIN_ID',
+  'GITHUB_TOKEN',
+  'GITHUB_OWNER',
+  'GITHUB_REPO'
+]
+
+let envValid = true
 console.log('\n🧭 Инициализация GENESIS_LAUNCHER...')
+
 for (const key of requiredEnv) {
   const val = process.env[key]
   if (!val) {
@@ -26,44 +38,46 @@ for (const key of requiredEnv) {
     console.log(`🟢 ${key} активен: ${val.slice(0,6)}...`)
   }
 }
+
 if (!envValid) {
   console.log('\n⛔️ Задайте все ENV-переменные и перезапустите.')
   process.exit(1)
 }
 
-const TOKEN         = process.env.TELEGRAM_TOKEN
-const ADMIN_ID      = String(process.env.ADMIN_ID)
-const GITHUB_TOKEN  = process.env.GITHUB_TOKEN
-const GITHUB_OWNER  = process.env.GITHUB_OWNER
-const GITHUB_REPO   = process.env.GITHUB_REPO
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main'
+const TOKEN        = process.env.TELEGRAM_TOKEN
+const ADMIN_ID     = String(process.env.ADMIN_ID)
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN
+const GITHUB_OWNER = process.env.GITHUB_OWNER
+const GITHUB_REPO  = process.env.GITHUB_REPO
+const GITHUB_BRANCH= process.env.GITHUB_BRANCH || 'main'
 
 const octokit = new Octokit({ auth: GITHUB_TOKEN })
 
-// ╔══════════════════════════════════════════╗
-// ║ 📂 Локальное хранилище и файлы           ║
-// ╚══════════════════════════════════════════╝
-const memoryPath  = path.join(__dirname, 'memory')
-const usersPath   = path.join(__dirname, 'users.json')
-const lockPath    = path.join(memoryPath, 'botEnabled.lock')
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 📂 Локальные хранилища и файлы                                  ║
+// ╚══════════════════════════════════════════════════════════════════╝
 
-// создаём директории и файлы, если надо
+const memoryPath = path.join(__dirname, 'memory')
+const usersPath  = path.join(__dirname, 'users.json')
+const lockPath   = path.join(memoryPath, 'botEnabled.lock')
+
+// Гарантируем наличие директорий и файлов
 if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath)
 if (!fs.existsSync(usersPath))  fs.writeFileSync(usersPath, JSON.stringify({},null,2))
 if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled')
 
-// ╔══════════════════════════════════╗
-// ║ 🛠️ Флаги работы бота             ║
-// ╚══════════════════════════════════╝
-function isBotEnabled()    { return fs.existsSync(lockPath) }
-function activateBotFlag() { fs.writeFileSync(lockPath, 'enabled') }
-function deactivateBotFlag(){
-  if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath)
-}
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🔐 Флаги работы бота                                           ║
+// ╚══════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════╗
-// ║ 🧾 Пользователи: регистрация + stats  ║
-// ╚══════════════════════════════════════╝
+function isBotEnabled()      { return fs.existsSync(lockPath) }
+function activateBotFlag()   { fs.writeFileSync(lockPath, 'enabled') }
+function deactivateBotFlag() { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath) }
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 👥 Пользователи и рассылки                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 function registerUser(userId) {
   userId = String(userId)
   try {
@@ -77,18 +91,15 @@ function registerUser(userId) {
     console.error('❌ Ошибка записи users.json:', err)
   }
 }
+
 function getUserCount() {
   try {
-    const users = JSON.parse(fs.readFileSync(usersPath,'utf8'))
-    return Object.keys(users).length
+    return Object.keys(JSON.parse(fs.readFileSync(usersPath,'utf8'))).length
   } catch {
     return 0
   }
 }
 
-// ╔══════════════════════════════════╗
-// ║ 📣 Рассылка уведомлений            ║
-// ╚══════════════════════════════════╝
 async function broadcastAll(bot, message) {
   let users = {}
   try {
@@ -101,24 +112,25 @@ async function broadcastAll(bot, message) {
       console.error(`⚠️ Не удалось отправить ${uid}:`, err.response?.body||err)
       if (err.response?.statusCode === 403) {
         delete users[uid]
-        console.log(`🗑 Удалён пользователь ${uid}`)
+        console.log(`🗑️ Удалён пользователь ${uid}`)
       }
     }
   }
   try {
     fs.writeFileSync(usersPath, JSON.stringify(users,null,2))
-  } catch{}
+  } catch {}
 }
 
-// ╔════════════════════════════════════╗
-// ║ 🌐 Управление JSON-е карты через API ║
-// ╚════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🌐 Интеграция с GitHub для map-status.json                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 async function fetchMapStatus() {
   const res = await octokit.repos.getContent({
     owner: GITHUB_OWNER,
-    repo:  GITHUB_REPO,
-    path:  'map-status.json',
-    ref:   GITHUB_BRANCH
+    repo: GITHUB_REPO,
+    path: 'map-status.json',
+    ref: GITHUB_BRANCH
   })
   const raw = Buffer.from(res.data.content, 'base64').toString()
   return { sha: res.data.sha, status: JSON.parse(raw) }
@@ -129,27 +141,25 @@ async function updateMapStatus({ enabled, message, theme='auto', disableUntil })
   const newStatus = { enabled, message, theme, disableUntil }
   const content = Buffer.from(JSON.stringify(newStatus,null,2)).toString('base64')
   await octokit.repos.createOrUpdateFileContents({
-    owner:   GITHUB_OWNER,
-    repo:    GITHUB_REPO,
-    path:    'map-status.json',
+    owner: GITHUB_OWNER,
+    repo: GITHUB_REPO,
+    path: 'map-status.json',
     message: `🔄 Update map-status: enabled=${enabled}`,
-    content,
-    sha,
-    branch:  GITHUB_BRANCH
+    content, sha, branch: GITHUB_BRANCH
   })
 }
 
-// ╔═════════════════════════════════╗
-// ║ 📋 Reply-клавиатура снизу        ║
-// ╚═════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 📋 Меню и клавиатуры                                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 function sendReplyMenu(bot, chatId, uid, text = '📋 Меню доступно снизу:') {
-  uid = String(uid)
-  const isAdmin = uid === ADMIN_ID
+  const isAdmin = String(uid) === ADMIN_ID
   const userMenu = {
     reply_markup: {
       keyboard: [
-        ['🧾 Info','🛣️ Roadmap'],
-        ['🌐 Ссылки','🗺️ Карта'],
+        ['🤖 Info','🗺️ Roadmap'],
+        ['🌐 Ссылки','🖼️ Карта'],
         ['❓ Помощь']
       ],
       resize_keyboard: true
@@ -158,46 +168,40 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню доступно 
   const adminMenu = {
     reply_markup: {
       keyboard: [
-        ['🧾 Info','🛣️ Roadmap'],
-        ['🌐 Ссылки','🗺️ Карта'],
+        ['🤖 Info','🗺️ Roadmap'],
+        ['🌐 Ссылки','🖼️ Карта'],
         ['❓ Помощь'],
-        ['📢 Рассылка','📃 Логи'],
-        ['⚠️ Выключить карту','🟢 Включить карту'],
-        ['👥 Добавить админа','📑 Список админов']
+        ['📣 Рассылка','📊 Логи'],
+        ['⚠️ Выключить карту','✅ Включить карту'],
+        ['👥 Добавить админа','📚 Список админов']
       ],
       resize_keyboard: true
     }
   }
-  const menu = isAdmin ? adminMenu : userMenu
-  bot.sendMessage(chatId, text, menu).catch(console.error)
+  bot.sendMessage(chatId, text, isAdmin ? adminMenu : userMenu).catch(console.error)
 }
 
-// ╔═════════════════════════════════╗
-// ║ 🤖 Инициализация и запуск бота  ║
-// ╚═════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🤖 Инициализация Telegram-бота                                  ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 activateBotFlag()
-const bot      = new TelegramBot(TOKEN, { polling: true })
-let   launched = false
+const bot = new TelegramBot(TOKEN, { polling: true })
+let launched = false
 
-bot.on('error', err =>
-  console.error('💥 Telegram API error:', err.code, err.response?.body||err)
-)
-bot.on('polling_error', err =>
-  console.error('📡 Polling error:', err.code, err.response?.body||err)
-)
+bot.on('error',           err => console.error('💥 Telegram API error:', err.code, err.response?.body||err))
+bot.on('polling_error',   err => console.error('📡 Polling error:', err.code, err.response?.body||err))
+bot.on('message',         msg => console.log(`📨 [${msg.chat.id}] ${msg.from.username||'unknown'}: ${msg.text}`))
 
-bot.on('message', msg =>
-  console.log(`📨 [${msg.chat.id}] ${msg.from.username||'unknown'}: ${msg.text}`)
-)
+bot.getMe()
+  .then(me => {
+    console.log(`✅ GENESIS активен как @${me.username}`)
+    launched = true
+  })
 
-bot.getMe().then(me => {
-  console.log(`✅ GENESIS активен как @${me.username}`)
-  launched = true
-})
-
-// ╔═══════════════════════════════════╗
-// ║ ⚙️ Команды управления              ║
-// ╚═══════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ ⚔️ Команды управления и реакции на текст                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
 
 // /start — регистрация + меню
 bot.onText(/\/start/, msg => {
@@ -205,7 +209,7 @@ bot.onText(/\/start/, msg => {
   const uid    = msg.from.id
   registerUser(uid)
   sendReplyMenu(bot, chatId, uid,
-    '🚀 Добро пожаловать, милорд! Вы успешно зарегистрированы.'
+    '🚀 Добро пожаловать! Вы успешно зарегистрированы.'
   )
 })
 
@@ -215,7 +219,7 @@ bot.onText(/\/help/, msg => {
     '📖 Команды:\n' +
     '/start — регистрация\n' +
     '/status — состояние бота\n' +
-    '/menu — меню снизу\n' +
+    '/menu — меню\n' +
     '/poweroff, /poweron, /restart — админ'
   )
 })
@@ -235,11 +239,12 @@ bot.onText(/\/menu/, msg => {
   sendReplyMenu(bot, msg.chat.id, msg.from.id)
 })
 
-// power commands — только админ
+// power-команды (только админ)
 bot.onText(/\/poweroff/, msg => {
   if (String(msg.from.id) === ADMIN_ID) {
     deactivateBotFlag()
-    bot.sendMessage(msg.chat.id, '🛑 Бот остановлен.').then(() => process.exit(0))
+    bot.sendMessage(msg.chat.id, '🛑 Бот остановлен.')
+      .then(() => process.exit(0))
   }
 })
 
@@ -258,13 +263,15 @@ bot.onText(/\/restart/, msg => {
   if (String(msg.from.id) === ADMIN_ID) {
     deactivateBotFlag()
     activateBotFlag()
-    bot.sendMessage(msg.chat.id, '🔄 Перезапуск…').then(() => process.exit(0))
+    bot.sendMessage(msg.chat.id, '🔄 Перезапуск…')
+      .then(() => process.exit(0))
   }
 })
 
-// ╔══════════════════════════════════╗
-// ║ 🔲 Обработка reply-кнопок        ║
-// ╚══════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║ 🛎️ Обработка нажатий кнопок меню и админ-режим                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 const broadcastPending = new Set()
 const disablePending   = new Set()
 
@@ -274,10 +281,8 @@ bot.on('message', async msg => {
   const uid    = String(msg.from.id)
 
   // — Broadcast flow (force_reply)
-  if (
-    broadcastPending.has(uid) &&
-    msg.reply_to_message?.text.includes('Напишите текст для рассылки')
-  ) {
+  if (broadcastPending.has(uid)
+      && msg.reply_to_message?.text.includes('Напишите текст для рассылки')) {
     broadcastPending.delete(uid)
     await broadcastAll(bot, text)
     bot.sendMessage(uid, '✅ Рассылка выполнена.')
@@ -285,25 +290,21 @@ bot.on('message', async msg => {
     return
   }
 
-  // — Подтвердить отключение карты (force_reply)
-  if (
-    disablePending.has(uid) &&
-    msg.reply_to_message?.text.includes('Подтвердите отключение карты')
-  ) {
+  // — Отключить карту (force_reply)
+  if (disablePending.has(uid)
+      && msg.reply_to_message?.text.includes('Подтвердите отключение карты')) {
     disablePending.delete(uid)
-
     const disableMsg =
-      '🔒 Genesis war map временно отключён.\n' +
-      'Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n' +
+      '🔒 Genesis временно отключён.\n' +
+      'Мы взяли тайм-аут, чтобы подготовить кое-что грандизное.\n' +
       '📍Скоро включим радар.'
 
-    // обновляем map-status.json на GitHub
     try {
       await updateMapStatus({
-        enabled:       false,
-        message:       disableMsg,
-        theme:         'auto',
-        disableUntil:  new Date().toISOString()
+        enabled: false,
+        message: disableMsg,
+        theme: 'auto',
+        disableUntil: new Date().toISOString()
       })
     } catch(err) {
       console.error('🛑 Ошибка при отключении карты:', err)
@@ -311,57 +312,49 @@ bot.on('message', async msg => {
       return sendReplyMenu(bot, chatId, uid)
     }
 
-    // уведомляем пользователей
     await broadcastAll(bot, disableMsg)
-
     bot.sendMessage(chatId, '✅ Карта отключена и все уведомлены.')
       .then(() => sendReplyMenu(bot, chatId, uid))
     return
   }
 
-  // — обычные кнопки
+  // — Обработать кнопки
   switch (text) {
-    case '🧾 Info':
-      bot.sendMessage(chatId, '🧾 Версия: b.1.0.0\n👨‍💻 Авторы: Stanford')
+    case '🤖 Info':
+      bot.sendMessage(chatId,
+        '🤖 Версия: 1.0.0\n👨‍💻 Авторы: GENESIS'
+      )
       break
 
-    case '🛣️ Roadmap':
+    case '🗺️ Roadmap':
       bot.sendMessage(chatId,
-        '🛣️ Roadmap:\n1. Запуск\n2. Обновления\n3. Новые фичи'
+        '🗺️ Roadmap:\n1. Запуск\n2. Обновления\n3. Новые фичи'
       )
       break
 
     case '🌐 Ссылки':
       bot.sendMessage(chatId,
-        '🧭 Официальные ресурсы Genesis:\n\n' +
-        '🏗️ Строения мира:\nhttps://back.genesis-of-ages.space/info/builds.php\n\n' +
-        '⚙️ Артефакты и технологии:\nhttps://back.genesis-of-ages.space/info/tech.php\n\n' +
-        '💬 Официальный чат:\nhttps://t.me/gao_chat\n\n' +
-        '🎮 Сайт игры:\nhttps://back.genesis-of-ages.space/game/\n\n' +
-        '🔗 Больше скоро…'
+        '🧭 Официальные ресурсы Genesis:\n' +
+        '🌐 Строения мира: https://back.genesis-of-ages.space/info/builds.php\n' +
+        '⚙️ Архивы: https://back.genesis-of-ages.space/info/tech.php\n' +
+        '💬 Официальный чат: https://t.me/gao_chat\n' +
+        '🎮 Сайт игры: https://back.genesis-of-ages.space/game/'
       )
       break
 
-    case '🗺️ Карта':
-      bot.sendMessage(chatId, '🧭 Открыть карту', {
-  reply_markup: {
-    inline_keyboard: [[
-      { text: '🗺️ Карта', web_app: { url: 'https://genesis-data.onrender.com/index.html' } }
-    ]]
-  }
-});
+    case '🖼️ Карта':
+      bot.sendMessage(chatId,
+        '🌍 Карта: https://metaboom4304.github.io/genesis-data/'
+      )
       break
 
     case '❓ Помощь':
       bot.sendMessage(chatId,
-        '📖 Помощь:\n' +
-        '- /start — регистрация\n' +
-        '- /status — состояние\n' +
-        '- /menu — меню'
+        '📖 Помощь:\n- /start — регистрация\n- /status — состояние\n- /menu — меню'
       )
       break
 
-    case '📢 Рассылка':
+    case '📣 Рассылка':
       if (uid === ADMIN_ID) {
         broadcastPending.add(uid)
         bot.sendMessage(chatId,
@@ -371,9 +364,11 @@ bot.on('message', async msg => {
       }
       break
 
-    case '📃 Логи':
+    case '📊 Логи':
       if (uid === ADMIN_ID) {
-        bot.sendMessage(chatId, '📄 Логи: тайлов 344/500, ошибок 0')
+        bot.sendMessage(chatId,
+          '📄 Логи: тайло 344/500, ошибок 0'
+        )
       }
       break
 
@@ -387,22 +382,26 @@ bot.on('message', async msg => {
       }
       break
 
-    case '🟢 Включить карту':
+    case '✅ Включить карту':
       if (uid === ADMIN_ID) {
-        const enableMsg = '🔓 Genesis war map сейчас в эфире!'
-        try {
-          await updateMapStatus({
-            enabled:       true,
-            message:       enableMsg,
-            theme:         'auto',
-            disableUntil:  new Date().toISOString()
-          })
-          await bot.sendMessage(chatId, '✅ Карта включена. Все снова подключены.')
-        } catch(err) {
-          console.error('🛑 Ошибка при включении карты:', err)
-          await bot.sendMessage(chatId, '❌ Не удалось включить карту.')
-        }
-        sendReplyMenu(bot, chatId, uid)
+        (async () => {
+          const enableMsg = '🔓 Genesis сейчас в эфире!'
+          try {
+            await updateMapStatus({
+              enabled: true,
+              message: enableMsg,
+              theme: 'auto',
+              disableUntil: new Date().toISOString()
+            })
+            await bot.sendMessage(chatId,
+              '✅ Карта включена. Все снова подключены.'
+            )
+          } catch(err) {
+            console.error('🛑 Ошибка при включении карты:', err)
+            await bot.sendMessage(chatId, '❌ Не удалось включить карту.')
+          }
+          sendReplyMenu(bot, chatId, uid)
+        })()
       }
       break
 
@@ -412,9 +411,9 @@ bot.on('message', async msg => {
       }
       break
 
-    case '📑 Список админов':
+    case '📚 Список админов':
       if (uid === ADMIN_ID) {
-        bot.sendMessage(chatId, `📑 Админы: ${ADMIN_ID}`)
+        bot.sendMessage(chatId, `📚 Админы: ${ADMIN_ID}`)
       }
       break
   }
