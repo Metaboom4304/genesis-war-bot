@@ -67,6 +67,10 @@ const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 
+// Новая переменная: прямой WebApp-URL карты (по умолчанию GitHub Pages)
+const MAP_URL = process.env.MAP_URL ||
+  `https://${GITHUB_OWNER}.github.io/${GITHUB_REPO}/`;
+
 const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
 // ╔══════════════════════════════════════════════════════════════════╗
@@ -346,8 +350,22 @@ bot.on('message', async msg => {
       break;
 
     case '🗺️ Карта':
-      bot.sendMessage(chatId,
-        '🌍 Карта: https://metaboom4304.github.io/genesis-data/'
+      // новый inline-кнопка WebApp вместо статичной ссылки
+      bot.sendMessage(
+        chatId,
+        '🌍 Открой карту прямо в Telegram:',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🗺️ Открыть карту',
+                  web_app: { url: MAP_URL }
+                }
+              ]
+            ]
+          }
+        }
       );
       break;
 
