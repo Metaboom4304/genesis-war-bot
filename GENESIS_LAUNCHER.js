@@ -67,7 +67,7 @@ const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 
-// Новая переменная: прямой WebApp-URL карты (по умолчанию GitHub Pages)
+// URL WebApp-карты, можно переопределить через ENV MAP_URL
 const MAP_URL = process.env.MAP_URL ||
   `https://${GITHUB_OWNER}.github.io/${GITHUB_REPO}/`;
 
@@ -350,23 +350,19 @@ bot.on('message', async msg => {
       break;
 
     case '🗺️ Карта':
-      // новый inline-кнопка WebApp вместо статичной ссылки
-      bot.sendMessage(
-        chatId,
-        '🌍 Открой карту прямо в Telegram:',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🗺️ Открыть карту',
-                  web_app: { url: MAP_URL }
-                }
-              ]
+      // inline-WebApp кнопка для открытия карты внутри Telegram
+      bot.sendMessage(chatId, '🌍 Открой карту прямо в Telegram:', {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🗺️ Открыть карту',
+                web_app: { url: MAP_URL }
+              }
             ]
-          }
+          ]
         }
-      );
+      });
       break;
 
     case '❓ Помощь':
@@ -390,7 +386,7 @@ bot.on('message', async msg => {
 
     case '📝 Логи':
       if (uid === ADMIN_ID) {
-        bot.sendMessage(chatId, '📄 Логи: тайло�� 344/500, ошибок 0');
+        bot.sendMessage(chatId, '📄 Логи: тайлов 344/500, ошибок 0');
       }
       break;
 
