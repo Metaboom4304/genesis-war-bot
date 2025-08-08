@@ -8,7 +8,7 @@ const TelegramBot = require('node-telegram-bot-api')
 const { Octokit } = require('@octokit/rest')
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 🛡️ ENV GUARD: Проверьте наличе всех обязательных переменных                ║
+// ║ 🛡️ ENV GUARD: Проверьте наличие всех обязательных переменных              ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 const requiredEnv = [
@@ -41,12 +41,12 @@ if (!envValid) {
 // ║ 📦 Константы                                                              ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
-const TOKEN          = process.env.TELEGRAM_TOKEN
-const ADMIN_ID       = String(process.env.ADMIN_ID)
-const GITHUB_TOKEN   = process.env.GITHUB_TOKEN
-const GITHUB_OWNER   = process.env.GITHUB_OWNER
-const GITHUB_REPO    = process.env.GITHUB_REPO
-const GITHUB_BRANCH  = process.env.GITHUB_BRANCH || 'main'
+const TOKEN         = process.env.TELEGRAM_TOKEN
+const ADMIN_ID      = String(process.env.ADMIN_ID)
+const GITHUB_TOKEN  = process.env.GITHUB_TOKEN
+const GITHUB_OWNER  = process.env.GITHUB_OWNER
+const GITHUB_REPO   = process.env.GITHUB_REPO
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main'
 
 const octokit = new Octokit({ auth: GITHUB_TOKEN })
 
@@ -181,14 +181,9 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню доступно:
     ? baseButtons.concat(adminButtons)
     : baseButtons
 
-  bot
-    .sendMessage(chatId, text, {
-      reply_markup: {
-        keyboard,
-        resize_keyboard: true
-      }
-    })
-    .catch(console.error)
+  bot.sendMessage(chatId, text, {
+    reply_markup: { keyboard, resize_keyboard: true }
+  }).catch(console.error)
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
@@ -228,9 +223,8 @@ bot.on('message', async msg => {
   ) {
     broadcastPending.delete(uid)
     await broadcastAll(bot, text)
-    bot.sendMessage(uid, '✅ Рассылка выполнена.')
-      .then(() => sendReplyMenu(bot, chatId, uid))
-    return
+    await bot.sendMessage(uid, '✅ Рассылка выполнена.')
+    return sendReplyMenu(bot, chatId, uid)
   }
 
   // — Обработка force-reply для выключения карты
@@ -239,7 +233,8 @@ bot.on('message', async msg => {
     msg.reply_to_message?.text.includes('Подтвердите отключение карты')
   ) {
     disablePending.delete(uid)
-    const disableMsg = 
+
+    const disableMsg =
       '🔒 Genesis временно отключён.\n' +
       'Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n' +
       '📍 Скоро включим radar.'
@@ -258,9 +253,8 @@ bot.on('message', async msg => {
     }
 
     await broadcastAll(bot, disableMsg)
-    bot.sendMessage(chatId, '✅ Карта отключена и всем уведомлено.')
-      .then(() => sendReplyMenu(bot, chatId, uid))
-    return
+    await bot.sendMessage(chatId, '✅ Карта отключена и всем уведомлено.')
+    return sendReplyMenu(bot, chatId, uid)
   }
 
   // — Основные команды
@@ -331,7 +325,84 @@ bot.on('message', async msg => {
       }
       break
 
-    // … остальные кейсы (Info, Roadmap, Ссылки, Карта, Помощь, Логи, Добавить админа, Список админов)
+    case '🤖 Info':
+      try {
+        const { status } = await fetchMapStatus()
+        await bot.sendMessage(
+          chatId,
+          `🧐 Info:\n` +
+          `- enabled: ${status.enabled}\n` +
+          `- message: ${status.message}`
+        )
+      } catch (err) {
+        console.error('🛑 Ошибка Info:', err)
+        await bot.sendMessage(chatId, '❌ Не удалось получить информацию.')
+      }
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '🛣 Roadmap':
+      await bot.sendMessage(
+        chatId,
+        `🛣 Roadmap:\nhttps://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/ROADMAP.md`
+      )
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '🌐 Ссылки':
+      await bot.sendMessage(
+        chatId,
+        '🌐 Ссылки:\n' +
+        `• GitHub: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}\n` +
+        '• Поддержка: https://t.me/your_support_chat'
+      )
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '🗺 Карта':
+      try {
+        const { status } = await fetchMapStatus()
+        await bot.sendMessage(chatId, status.message)
+      } catch (err) {
+        console.error('🛑 Ошибка Карта:', err)
+        await bot.sendMessage(chatId, '❌ Не удалось получить карту.')
+      }
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '❓ Помощь':
+      await bot.sendMessage(
+        chatId,
+        '❓ Помощь:\n' +
+        '– Используйте кнопки меню для навигации\n' +
+        '– /help для списка команд\n' +
+        '– Свяжитесь с админом при проблемах'
+      )
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '📃 Логи':
+      try {
+        const logs = fs.readFileSync(path.join(__dirname, 'logs.txt'), 'utf8')
+        await bot.sendMessage(chatId, `📃 Логи:\n${logs}`)
+      } catch {
+        await bot.sendMessage(chatId, '📃 Логи недоступны.')
+      }
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '👥 Добавить админа':
+      await bot.sendMessage(chatId, '👥 Добавление админа пока не реализовано.')
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    case '📑 Список админов':
+      await bot.sendMessage(chatId, `📑 Админы:\n• ${ADMIN_ID}`)
+      sendReplyMenu(bot, chatId, uid)
+      break
+
+    default:
+      sendReplyMenu(bot, chatId, uid)
+      break
   }
 })
-```[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/tlemsl/tlemsl.github.io/tree/238b7319f4518674f12411412f4e5e0b2bce56d3/_posts%2F2021-01-03-enable-google-pv.md?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "1")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/glascaleia/geotoolkit-pending/tree/e3908e9dfefc415169f80787cff8c94af4afce17/modules%2Finterop%2Fgeotk-mapfile%2Fsrc%2Ftest%2Fjava%2Forg%2Fgeotoolkit%2Fmapfile%2FReaderTest.java?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "2")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/renatoAraujoSantos/produtor-desenv/tree/3b26241d327bf31c2873d5ec512e2e55a70834ec/src%2Fscreens%2Ffornecedor%2Fscreens%2FProduto%2FProdutoScreen.js?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "3")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/vzehirev/crmi/tree/efa7bf302a08f08d170b6acb992f105558fa7c32/lib%2Futil%2Fregex.php?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "4")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/WillemMe/The-Lost-Treasure/tree/2225f7ca61791eb4503e6c8f779b50b805bfd1d0/app.js?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "5")[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/Kombiz-Khayami/Resume/tree/a5c3a015bd96d79c03657b89992e2bdd6a91ec07/Linux%2Ftree%20project%2F7khayk2014FUNCS.sh?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "6")
