@@ -199,9 +199,6 @@ activateBotFlag()
 // single declaration of bot
 const bot = new TelegramBot(TOKEN, { polling: true })
 
-// reset any old webhook so polling can connect without 409
-bot.deleteWebhook().catch(console.error)
-
 let launched = false
 
 bot.on('error',         err => console.error('💥 Telegram API error:', err.code, err.response?.body || err))
