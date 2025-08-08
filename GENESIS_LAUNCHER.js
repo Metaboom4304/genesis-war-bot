@@ -1,3 +1,18 @@
+// ───────────────────────────────────────────────────────────────
+// 1. Express-сервер для Render (чтобы порт был «открыт»)
+require('dotenv').config()            // если используете .env
+const express = require('express')
+const app     = express()
+const PORT    = process.env.PORT || 3000
+
+app.get('/', (req, res) => {
+  res.send('🌐 GENESIS bot is alive!')
+})
+
+app.listen(PORT, () => {
+  console.log(`🌐 Express запущен на порту ${PORT}`)
+})
+// ───────────────────────────────────────────────────────────────
 // ╔════════════════════════════════════╗
 // ║ 🧠 GENESIS_LAUNCHER — Telegram Control ║
 // ╚════════════════════════════════════╝
