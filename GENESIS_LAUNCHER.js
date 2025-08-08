@@ -1,18 +1,25 @@
-const bot = new TelegramBot(token, { polling: true });
-
-// сбрасываем webhook, если он где-то остался
-bot.deleteWebhook().catch(console.error);
 // ╔════════════════════════════════════════════════════════════════════════════╗
 // ║ 🧠 GENESIS_LAUNCHER — Telegram Control                                     ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
-const fs = require('fs')
-const path = require('path')
-const TelegramBot = require('node-telegram-bot-api')
-const { Octokit } = require('@octokit/rest')
+// ───────────────────────────────────────────────────────────────────────────────
+// 0. Keep-alive Express server for Render free tier
+require('dotenv').config()           // if you use a .env locally
+const express = require('express')
+const app     = express()
+const PORT    = process.env.PORT || 3000
+
+app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'))
+app.listen(PORT, () => console.log(`🌐 Express listening on port ${PORT}`))
+// ───────────────────────────────────────────────────────────────────────────────
+
+const fs           = require('fs')
+const path         = require('path')
+const TelegramBot  = require('node-telegram-bot-api')
+const { Octokit }  = require('@octokit/rest')
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 🛡️ ENV GUARD: Проверьте наличие всех обязательных переменных              ║
+// ║ 🛡️ ENV GUARD: check for all required environment variables                ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 const requiredEnv = [
@@ -24,25 +31,22 @@ const requiredEnv = [
 ]
 
 let envValid = true
-console.log('\n🤍 Инициализация GENESIS_LAUNCHER…')
-
+console.log('\n🤍 Initializing GENESIS_LAUNCHER…')
 for (const key of requiredEnv) {
-  const val = process.env[key]
-  if (!val) {
-    console.log(`🔴 ENV отсутствует: ${key}`)
+  if (!process.env[key]) {
+    console.log(`🔴 Missing ENV: ${key}`)
     envValid = false
   } else {
-    console.log(`🟢 ${key} активен: ${val.slice(0,6)}…`)
+    console.log(`🟢 ${key} present`)
   }
 }
-
 if (!envValid) {
-  console.log('\n⛔️ Задайте все ENV-переменные и перезапустите.')
+  console.log('\n⛔️ Please set all ENV variables and restart.')
   process.exit(1)
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 📦 Константы                                                              ║
+// ║ 📦 Constants                                                              ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 const TOKEN         = process.env.TELEGRAM_TOKEN
@@ -55,7 +59,7 @@ const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main'
 const octokit = new Octokit({ auth: GITHUB_TOKEN })
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 📂 Файловая и флаговая логика                                               ║
+// ║ 📂 File system paths & bot-enabled flag                                   ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 const memoryPath = path.join(__dirname, 'memory')
@@ -69,17 +73,15 @@ if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled')
 function isBotEnabled() {
   return fs.existsSync(lockPath)
 }
-
 function activateBotFlag() {
   fs.writeFileSync(lockPath, 'enabled')
 }
-
 function deactivateBotFlag() {
   if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath)
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 📑 Пользователи и статистика                                              ║
+// ║ 📑 User registration & stats                                              ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 function registerUser(userId) {
@@ -89,10 +91,10 @@ function registerUser(userId) {
     if (!users[userId]) {
       users[userId] = { registered: true, ts: Date.now() }
       fs.writeFileSync(usersPath, JSON.stringify(users, null, 2))
-      console.log(`👤 Зарегистрирован: ${userId}`)
+      console.log(`👤 Registered user: ${userId}`)
     }
   } catch (err) {
-    console.error('❌ Ошибка записи users.json:', err)
+    console.error('❌ Failed to write users.json:', err)
   }
 }
 
@@ -106,7 +108,7 @@ function getUserCount() {
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 🌐 GitHub / map-status.json через Octokit                                  ║
+// ║ 🌐 GitHub map-status.json via Octokit                                      ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 async function fetchMapStatus() {
@@ -121,7 +123,7 @@ async function fetchMapStatus() {
 }
 
 async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil }) {
-  const { sha } = await fetchMapStatus()
+  const { sha }    = await fetchMapStatus()
   const newStatus = { enabled, message, theme, disableUntil }
   const content   = Buffer.from(JSON.stringify(newStatus, null, 2)).toString('base64')
 
@@ -137,7 +139,7 @@ async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil 
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 📢 Рассылка сообщений                                                     ║
+// ║ 📢 Broadcast messages                                                      ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 async function broadcastAll(bot, message) {
@@ -149,10 +151,10 @@ async function broadcastAll(bot, message) {
     try {
       await bot.sendMessage(uid, message)
     } catch (err) {
-      console.error(`⚠️ Не отправить ${uid}:`, err.response?.body || err)
+      console.error(`⚠️ Cannot send to ${uid}:`, err.response?.body || err)
       if (err.response?.statusCode === 403) {
         delete users[uid]
-        console.log(`🗑️ Удалён пользователь ${uid}`)
+        console.log(`🗑️ Removed user ${uid}`)
       }
     }
   }
@@ -162,25 +164,23 @@ async function broadcastAll(bot, message) {
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 🗂️ Меню и клавиатуры                                                       ║
+// ║ 🗂️ Reply-keyboard menus                                                     ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
-function sendReplyMenu(bot, chatId, uid, text = '📋 Меню доступно:') {
+function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
   uid = String(uid)
   const isAdmin = uid === ADMIN_ID
 
   const baseButtons = [
     ['🤖 Info', '🛣 Roadmap'],
-    ['🌐 Ссылки', '🗺 Карта'],
-    ['❓ Помощь']
+    ['🌐 Links', '🗺 Map'],
+    ['❓ Help']
   ]
-
   const adminButtons = [
-    ['📢 Рассылка', '📃 Логи'],
-    ['⚠️ Выключить карту', '🔄 Включить карту'],
-    ['👥 Добавить админа', '📑 Список админов']
+    ['📢 Broadcast', '📃 Logs'],
+    ['⚠️ Disable map', '🔄 Enable map'],
+    ['👥 Add admin', '📑 Admins']
   ]
-
   const keyboard = isAdmin
     ? baseButtons.concat(adminButtons)
     : baseButtons
@@ -191,25 +191,31 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню доступно:
 }
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ 🤖 Инициализация бота                                                      ║
+// ║ 🤖 Bot initialization                                                      ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 activateBotFlag()
+
+// single declaration of bot
 const bot = new TelegramBot(TOKEN, { polling: true })
+
+// reset any old webhook so polling can connect without 409
+bot.deleteWebhook().catch(console.error)
+
 let launched = false
 
-bot.on('error',          err => console.error('💥 Telegram API error:', err.code, err.response?.body || err))
-bot.on('polling_error',  err => console.error('🛑 Polling error:', err.code, err.response?.body || err))
-bot.on('message',        msg => console.log(`📨 [${msg.chat.id}] ${msg.from.username || 'unknown'}: ${msg.text}`))
+bot.on('error',         err => console.error('💥 Telegram API error:', err.code, err.response?.body || err))
+bot.on('polling_error', err => console.error('🛑 Polling error:', err.code, err.response?.body || err))
+bot.on('message',       msg => console.log(`📨 [${msg.chat.id}] ${msg.from.username || 'unknown'}: ${msg.text}`))
 
 bot.getMe()
   .then(me => {
-    console.log(`✅ GENESIS активен как @${me.username}`)
+    console.log(`✅ GENESIS active as @${me.username}`)
     launched = true
   })
 
 // ╔════════════════════════════════════════════════════════════════════════════╗
-// ║ ⚙️ Команды и потоковые обработчики                                         ║
+// ║ ⚙️ Command handlers & message flows                                         ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
 
 const broadcastPending = new Set()
@@ -220,28 +226,26 @@ bot.on('message', async msg => {
   const chatId = msg.chat.id
   const uid    = String(msg.from.id)
 
-  // — Обработка force-reply для рассылки
+  // — Broadcast force-reply
   if (
     broadcastPending.has(uid) &&
-    msg.reply_to_message?.text.includes('Напишите текст для рассылки')
+    msg.reply_to_message?.text.includes('Write broadcast text')
   ) {
     broadcastPending.delete(uid)
     await broadcastAll(bot, text)
-    await bot.sendMessage(uid, '✅ Рассылка выполнена.')
+    await bot.sendMessage(uid, '✅ Broadcast sent.')
     return sendReplyMenu(bot, chatId, uid)
   }
 
-  // — Обработка force-reply для выключения карты
+  // — Disable map force-reply
   if (
     disablePending.has(uid) &&
-    msg.reply_to_message?.text.includes('Подтвердите отключение карты')
+    msg.reply_to_message?.text.includes('Confirm disabling map')
   ) {
     disablePending.delete(uid)
-
     const disableMsg =
-      '🔒 Genesis временно отключён.\n' +
-      'Мы взяли тайм-аут, чтобы подготовить кое-что грандиозное.\n' +
-      '📍 Скоро включим radar.'
+      '🔒 Genesis temporarily disabled.\n' +
+      'We\'ll be back soon with something big.'
 
     try {
       await updateMapStatus({
@@ -251,40 +255,40 @@ bot.on('message', async msg => {
         disableUntil: new Date().toISOString()
       })
     } catch (err) {
-      console.error('🛑 Ошибка при отключении карты:', err)
-      await bot.sendMessage(chatId, '❌ Не удалось отключить карту.')
+      console.error('🛑 Disable error:', err)
+      await bot.sendMessage(chatId, '❌ Failed to disable map.')
       return sendReplyMenu(bot, chatId, uid)
     }
 
     await broadcastAll(bot, disableMsg)
-    await bot.sendMessage(chatId, '✅ Карта отключена и всем уведомлено.')
+    await bot.sendMessage(chatId, '✅ Map disabled and everyone notified.')
     return sendReplyMenu(bot, chatId, uid)
   }
 
-  // — Основные команды
+  // — Main commands
   switch (text) {
     case '/start':
       registerUser(uid)
       sendReplyMenu(bot, chatId, uid,
-        '🚀 Добро пожаловать! Вы успешно зарегистрированы.'
+        '🚀 Welcome! You\'re now registered.'
       )
       break
 
     case '/help':
       sendReplyMenu(bot, chatId, uid,
-        '📖 Команды:\n' +
-        '/start — регистрация\n' +
-        '/status — состояние бота\n' +
-        '/menu — меню'
+        '📖 Commands:\n' +
+        '/start — register\n' +
+        '/status — bot status\n' +
+        '/menu — show menu'
       )
       break
 
     case '/status':
       bot.sendMessage(chatId,
-        `📊 Статус:\n` +
-        `- Запущен: ${launched}\n` +
-        `- Бот активен: ${isBotEnabled()}\n` +
-        `- Юзеров: ${getUserCount()}`
+        `📊 Status:\n` +
+        `- Launched: ${launched}\n` +
+        `- Bot enabled: ${isBotEnabled()}\n` +
+        `- Users: ${getUserCount()}`
       ).catch(console.error)
       break
 
@@ -292,27 +296,27 @@ bot.on('message', async msg => {
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '📢 Рассылка':
+    case '📢 Broadcast':
       if (uid === ADMIN_ID) {
         broadcastPending.add(uid)
-        bot.sendMessage(chatId, '✏️ Напишите текст для рассылки:', {
+        bot.sendMessage(chatId, '✏️ Write broadcast text:', {
           reply_markup: { force_reply: true }
         })
       }
       break
 
-    case '⚠️ Выключить карту':
+    case '⚠️ Disable map':
       if (uid === ADMIN_ID) {
         disablePending.add(uid)
-        bot.sendMessage(chatId, '⚠️ Подтвердите отключение карты:', {
+        bot.sendMessage(chatId, '⚠️ Confirm disabling map:', {
           reply_markup: { force_reply: true }
         })
       }
       break
 
-    case '🔄 Включить карту':
+    case '🔄 Enable map':
       if (uid === ADMIN_ID) {
-        const enableMsg = '🔓 Genesis сейчас в эфире!'
+        const enableMsg = '🔓 Genesis is back online!'
         try {
           await updateMapStatus({
             enabled: true,
@@ -320,10 +324,10 @@ bot.on('message', async msg => {
             theme: 'auto',
             disableUntil: new Date().toISOString()
           })
-          await bot.sendMessage(chatId, '✅ Карта включена. Все снова подключены.')
+          await bot.sendMessage(chatId, '✅ Map enabled.')
         } catch (err) {
-          console.error('🛑 Ошибка при включении карты:', err)
-          await bot.sendMessage(chatId, '❌ Не удалось включить карту.')
+          console.error('🛑 Enable error:', err)
+          await bot.sendMessage(chatId, '❌ Failed to enable map.')
         }
         sendReplyMenu(bot, chatId, uid)
       }
@@ -339,8 +343,8 @@ bot.on('message', async msg => {
           `- message: ${status.message}`
         )
       } catch (err) {
-        console.error('🛑 Ошибка Info:', err)
-        await bot.sendMessage(chatId, '❌ Не удалось получить информацию.')
+        console.error('🛑 Info error:', err)
+        await bot.sendMessage(chatId, '❌ Failed to fetch info.')
       }
       sendReplyMenu(bot, chatId, uid)
       break
@@ -353,60 +357,59 @@ bot.on('message', async msg => {
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '🌐 Ссылки':
+    case '🌐 Links':
       await bot.sendMessage(
         chatId,
-        '🌐 Ссылки:\n' +
+        '🌐 Links:\n' +
         `• GitHub: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}\n` +
-        '• Поддержка: https://t.me/your_support_chat'
+        '• Support: https://t.me/your_support_chat'
       )
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '🗺 Карта':
+    case '🗺 Map':
       try {
         const { status } = await fetchMapStatus()
         await bot.sendMessage(chatId, status.message)
       } catch (err) {
-        console.error('🛑 Ошибка Карта:', err)
-        await bot.sendMessage(chatId, '❌ Не удалось получить карту.')
+        console.error('🛑 Map error:', err)
+        await bot.sendMessage(chatId, '❌ Failed to fetch map.')
       }
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '❓ Помощь':
+    case '❓ Help':
       await bot.sendMessage(
         chatId,
-        '❓ Помощь:\n' +
-        '– Используйте кнопки меню для навигации\n' +
-        '– /help для списка команд\n' +
-        '– Свяжитесь с админом при проблемах'
+        '❓ Help:\n' +
+        '– Use the menu buttons\n' +
+        '– /help for commands\n' +
+        '– Contact admin for issues'
       )
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '📃 Логи':
+    case '📃 Logs':
       try {
         const logs = fs.readFileSync(path.join(__dirname, 'logs.txt'), 'utf8')
-        await bot.sendMessage(chatId, `📃 Логи:\n${logs}`)
+        await bot.sendMessage(chatId, `📃 Logs:\n${logs}`)
       } catch {
-        await bot.sendMessage(chatId, '📃 Логи недоступны.')
+        await bot.sendMessage(chatId, '📃 Logs not available.')
       }
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '👥 Добавить админа':
-      await bot.sendMessage(chatId, '👥 Добавление админа пока не реализовано.')
+    case '👥 Add admin':
+      await bot.sendMessage(chatId, '👥 Add admin not implemented yet.')
       sendReplyMenu(bot, chatId, uid)
       break
 
-    case '📑 Список админов':
-      await bot.sendMessage(chatId, `📑 Админы:\n• ${ADMIN_ID}`)
+    case '📑 Admins':
+      await bot.sendMessage(chatId, `📑 Admins:\n• ${ADMIN_ID}`)
       sendReplyMenu(bot, chatId, uid)
       break
 
     default:
       sendReplyMenu(bot, chatId, uid)
-      break
   }
 })
