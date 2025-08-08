@@ -1,3 +1,7 @@
+const bot = new TelegramBot(token, { polling: true });
+
+// сбрасываем webhook, если он где-то остался
+bot.deleteWebhook().catch(console.error);
 // ╔════════════════════════════════════════════════════════════════════════════╗
 // ║ 🧠 GENESIS_LAUNCHER — Telegram Control                                     ║
 // ╚════════════════════════════════════════════════════════════════════════════╝
