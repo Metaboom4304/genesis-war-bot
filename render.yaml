@@ -1,17 +1,10 @@
 services:
   - type: web
-    name: genesis-war-bot
+    name: genesis-bot
     env: node
     plan: free
-    buildCommand: 'npm install'
-    startCommand: 'node GENESIS_LAUNCHER.js'
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: TELEGRAM_TOKEN
-        sync: false
-      - key: ADMIN_ID
-        sync: false
-      - key: GITHUB_TOKEN
-        sync: false
-    ports:
-      - port: 3000
-        protocol: http
+        fromEnv: TELEGRAM_TOKEN
