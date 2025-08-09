@@ -360,14 +360,23 @@ bot.on('message', async (msg) => {
       return sendReplyMenu(bot, chatId, uid);
 
     case '🗺 Map':
-      try {
-        const { status } = await fetchMapStatus();
-        await bot.sendMessage(chatId, status.message);
-      } catch (err) {
-        console.error('🛑 Map error:', err);
-        await bot.sendMessage(chatId, '❌ Failed to fetch map.');
-      }
-      return sendReplyMenu(bot, chatId, uid);
+  try {
+    const { status } = await fetchMapStatus();
+    const mapUrl = 'https://genesis-data.onrender.com'; // ← актуальная ссылка
+
+    const message = status.enabled
+      ? `[🗺️ Открыть карту](${mapUrl})\n\n${status.message || ''}`
+      : '🔒 Карта временно отключена.\nGenesis скоро вернётся.';
+
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown'
+    });
+  } catch (err) {
+    console.error('🛑 Map error:', err);
+    await bot.sendMessage(chatId, '❌ Ошибка при получении карты.');
+  }
+  return sendReplyMenu(bot, chatId, uid);
+
 
     case '❓ Help':
       await bot.sendMessage(chatId,
