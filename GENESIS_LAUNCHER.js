@@ -1,4 +1,4 @@
-require('dotenv').config(); // ✅ Загружает .env файл
+import 'dotenv/config'; // ✅ Это корректный ESM импорт
 console.log('TELEGRAM_TOKEN =', process.env.TELEGRAM_TOKEN); // Проверка
 
 // GENESIS_LAUNCHER.mjs
