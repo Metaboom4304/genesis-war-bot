@@ -1,18 +1,12 @@
+// GENESIS_LAUNCHER.mjs
 'use strict';
 
-console.log('🟡 GENESIS_LAUNCHER starting…');
-
-require('dotenv').config();            // Load .env if present
-
-// -----------------------------
-// 📦 Imports
-// -----------------------------
-const fs          = require('fs');
-const path        = require('path');
-const http        = require('http');
-const express     = require('express');
-const TelegramBot = require('node-telegram-bot-api');
-const { Octokit } = require('@octokit/rest');
+import 'dotenv/config';                         // Load .env if present
+import fs            from 'fs';
+import path          from 'path';
+import express       from 'express';
+import TelegramBot   from 'node-telegram-bot-api';
+import { Octokit }   from '@octokit/rest';
 
 // -----------------------------
 // 🛡️ ENV GUARD
@@ -43,7 +37,7 @@ if (!envValid) {
 }
 
 // -----------------------------
-// 📑 Config constants
+// 📑 Configuration Constants
 // -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const ADMIN_ID      = String(process.env.ADMIN_ID);
@@ -51,29 +45,31 @@ const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-
-const octokit       = new Octokit({ auth: GITHUB_TOKEN });
 const PORT          = process.env.PORT || 3000;
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
 // -----------------------------
 // 🗂️ File system & lock flag
 // -----------------------------
-const memoryPath = path.join(__dirname, 'memory');
-const usersPath  = path.join(__dirname, 'users.json');
-const lockPath   = path.join(memoryPath, 'botEnabled.lock');
+const __dirname   = path.dirname(new URL(import.meta.url).pathname);
+const memoryPath  = path.join(__dirname, 'memory');
+const usersPath   = path.join(__dirname, 'users.json');
+const lockPath    = path.join(memoryPath, 'botEnabled.lock');
+const logsPath    = path.join(__dirname, 'logs.txt');
 
-// Ensure directories and files
-if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath);
+if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath, { recursive: true });
 if (!fs.existsSync(usersPath))  fs.writeFileSync(usersPath, '{}');
 if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled');
 
-// Flag helpers
 function isBotEnabled() {
   return fs.existsSync(lockPath);
 }
+
 function activateBotFlag() {
   fs.writeFileSync(lockPath, 'enabled');
 }
+
 function deactivateBotFlag() {
   if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
 }
@@ -114,7 +110,7 @@ async function fetchMapStatus() {
     path:  'map-status.json',
     ref:   GITHUB_BRANCH
   });
-  const raw = Buffer.from(res.data.content, 'base64').toString();
+  const raw = Buffer.from(res.data.content, 'base64').toString('utf8');
   return {
     sha:    res.data.sha,
     status: JSON.parse(raw)
@@ -122,16 +118,16 @@ async function fetchMapStatus() {
 }
 
 async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil }) {
-  const { sha } = await fetchMapStatus();
-  const newStatus = { enabled, message, theme, disableUntil };
-  const content   = Buffer.from(JSON.stringify(newStatus, null, 2)).toString('base64');
+  const { sha }     = await fetchMapStatus();
+  const newStatus   = { enabled, message, theme, disableUntil };
+  const contentBase = Buffer.from(JSON.stringify(newStatus, null, 2)).toString('base64');
 
   await octokit.rest.repos.createOrUpdateFileContents({
     owner:   GITHUB_OWNER,
     repo:    GITHUB_REPO,
     path:    'map-status.json',
     message: `🔄 Update map-status: enabled=${enabled}`,
-    content,
+    content: contentBase,
     sha,
     branch:  GITHUB_BRANCH
   });
@@ -145,7 +141,7 @@ async function broadcastAll(bot, message) {
   try {
     users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
   } catch {}
-  
+
   for (const uid of Object.keys(users)) {
     try {
       await bot.sendMessage(uid, message);
@@ -180,7 +176,7 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
   ];
 
   const keyboard = isAdmin
-    ? baseButtons.concat(adminButtons)
+    ? [...baseButtons, ...adminButtons]
     : baseButtons;
 
   bot.sendMessage(chatId, text, {
@@ -203,11 +199,9 @@ setInterval(() => {
 // 🤖 Initialize Telegram Bot
 // -----------------------------
 activateBotFlag();
-
 const bot = new TelegramBot(TOKEN, { polling: true });
 console.log('🚀 TelegramBot instance created, polling started');
 
-// Error handlers
 bot.on('error',         err => console.error('💥 Telegram API error:', err));
 bot.on('polling_error', err => console.error('🛑 Polling error:', err));
 bot.on('webhook_error', err => console.error('🛑 Webhook error:', err));
@@ -227,14 +221,14 @@ bot.getMe()
 const broadcastPending = new Set();
 const disablePending   = new Set();
 
-bot.on('message', async msg => {
+bot.on('message', async (msg) => {
   const text   = msg.text || '';
   const chatId = msg.chat.id;
   const uid    = String(msg.from.id);
 
   console.log(`📨 [${chatId}] ${msg.from.username || uid}: ${text}`);
 
-  // — Handle broadcast replies
+  // Handle pending broadcast
   if (
     broadcastPending.has(uid) &&
     msg.reply_to_message?.text.includes('Write broadcast text')
@@ -245,13 +239,13 @@ bot.on('message', async msg => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // — Handle disable-map confirmation
+  // Handle pending disable-map
   if (
     disablePending.has(uid) &&
     msg.reply_to_message?.text.includes('Confirm disabling map')
   ) {
     disablePending.delete(uid);
-    const disableMsg = '🔒 Genesis temporarily disabled.\nWe\'ll be back soon with something big.';
+    const disableMsg = '🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.';
 
     try {
       await updateMapStatus({
@@ -271,14 +265,17 @@ bot.on('message', async msg => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // — Main menu & commands
+  // Main menu & commands
   switch (text) {
     case '/start':
       registerUser(uid);
       return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
 
     case '/help':
-      return sendReplyMenu(bot, chatId, uid,
+      return sendReplyMenu(
+        bot,
+        chatId,
+        uid,
         '📖 Commands:\n' +
         '/start — register\n' +
         '/status — bot status\n' +
@@ -380,7 +377,7 @@ bot.on('message', async msg => {
 
     case '📃 Logs':
       try {
-        const logs = fs.readFileSync(path.join(__dirname, 'logs.txt'), 'utf8');
+        const logs = fs.readFileSync(logsPath, 'utf8');
         await bot.sendMessage(chatId, `📃 Logs:\n${logs}`);
       } catch {
         await bot.sendMessage(chatId, '📃 Logs not available.');
@@ -388,9 +385,8 @@ bot.on('message', async msg => {
       return sendReplyMenu(bot, chatId, uid);
 
     case '👥 Add admin':
-      return bot.sendMessage(chatId, '👥 Add admin not implemented.').then(() =>
-        sendReplyMenu(bot, chatId, uid)
-      );
+      await bot.sendMessage(chatId, '👥 Add admin not implemented.');
+      return sendReplyMenu(bot, chatId, uid);
 
     case '📑 Admins':
       await bot.sendMessage(chatId, `📑 Admins:\n• ${ADMIN_ID}`);
