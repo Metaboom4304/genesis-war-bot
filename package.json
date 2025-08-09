@@ -12,6 +12,7 @@
     "dotenv": "^16.0.0",
     "node-telegram-bot-api": "^0.61.0",
     "@octokit/rest": "^20.0.0"
+    "json5": "^2.2.3"
   },
   "engines": {
     "node": ">=16.0.0"
