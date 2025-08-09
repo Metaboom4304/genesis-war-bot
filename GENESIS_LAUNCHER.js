@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // GENESIS_LAUNCHER.mjs
 'use strict';
 
