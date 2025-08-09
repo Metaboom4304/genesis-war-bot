@@ -1,243 +1,519 @@
-// GENESIS_LAUNCHER.js
-// ESM-версия, безопасные логи, polling, базовые команды, совместимо с Render
-
 import 'dotenv/config';
-import express from 'express';
-import TelegramBot from 'node-telegram-bot-api';
-import { Octokit } from '@octokit/rest';
+console.log('TELEGRAM_TOKEN =', process.env.TELEGRAM_TOKEN); // Проверка
+
+// GENESIS_LAUNCHER.mjs
+'use strict';
+
+import 'dotenv/config';                         // Load .env if present
+import fs            from 'fs';
+import path          from 'path';
+import express       from 'express';
+import TelegramBot   from 'node-telegram-bot-api';
+import { Octokit }   from '@octokit/rest';
 
 // -----------------------------
-// 0) Безопасные утилиты логирования
+// 🛡️ ENV GUARD
 // -----------------------------
-const log = {
-  info: (...args) => console.info('[INFO]', ...args),
-  warn: (...args) => console.warn('[WARN]', ...args),
-  error: (...args) => console.error('[ERROR]', ...args),
-  debug: (...args) => console.debug('[DEBUG]', ...args),
+const requiredEnv = [
+  'TELEGRAM_TOKEN',
+  'ADMIN_ID',
+  'GITHUB_TOKEN',
+  'GITHUB_OWNER',
+  'GITHUB_REPO'
+];
+
+let envValid = true;
+console.log('\n🤍 Checking required environment variables…');
+
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    console.error(`🔴 Missing ENV: ${key}`);
+    envValid = false;
+  } else {
+    console.log(`🟢 ${key} OK`);
+  }
+}
+
+if (!envValid) {
+  console.error('⛔ Please set all ENV variables and restart.');
+  process.exit(1);
+}
+
+// -----------------------------
+// 📑 Configuration Constants
+// -----------------------------
+const TOKEN         = process.env.TELEGRAM_TOKEN;
+const ADMIN_ID      = String(process.env.ADMIN_ID);
+const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
+const GITHUB_OWNER  = process.env.GITHUB_OWNER;
+const GITHUB_REPO   = process.env.GITHUB_REPO;
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
+const PORT          = process.env.PORT || 3000;
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ADMIN_ID;
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+
+// -----------------------------
+// 🗂️ File system & lock flag
+// -----------------------------
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const memoryPath  = path.join(__dirname, 'memory');
+const usersPath   = path.join(__dirname, 'users.json');
+const lockPath    = path.join(memoryPath, 'botEnabled.lock');
+const logsPath    = path.join(__dirname, 'logs.txt');
+
+if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath, { recursive: true });
+if (!fs.existsSync(usersPath))  fs.writeFileSync(usersPath, '{}');
+if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled');
+if (!fs.existsSync(logsPath))   fs.writeFileSync(logsPath, '');
+
+// -----------------------------
+// 🧾 Simple logger (writes to logs.txt)
+// -----------------------------
+function writeLog(level, message, meta = null) {
+  const time = new Date().toISOString();
+  const line = `${time} [${level}] ${message}${meta ? ' ' + JSON.stringify(meta) : ''}\n`;
+  try { fs.appendFileSync(logsPath, line); } catch {}
+  // Mirror to console
+  const fn = level === 'ERROR' ? console.error : level === 'WARN' ? console.warn : console.log;
+  fn(line.trim());
+}
+
+const logger = {
+  info:  (msg, meta) => writeLog('INFO', msg, meta),
+  debug: (msg, meta) => writeLog('DEBUG', msg, meta),
+  warn:  (msg, meta) => writeLog('WARN', msg, meta),
+  error: (msg, meta) => writeLog('ERROR', msg, meta),
 };
 
-function maskToken(token) {
-  if (!token) return 'MISSING';
-  if (token.length <= 8) return '*****';
-  return token.slice(0, 4) + '***' + token.slice(-4);
+// -----------------------------
+// 🔒 Enable/disable file flag
+// -----------------------------
+function isBotEnabled() {
+  return fs.existsSync(lockPath);
+}
+
+function activateBotFlag() {
+  fs.writeFileSync(lockPath, 'enabled');
+}
+
+function deactivateBotFlag() {
+  if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
 }
 
 // -----------------------------
-// 1) Проверка переменных окружения
+// 👥 User registration & stats
 // -----------------------------
-log.info('🤍 Checking required environment variables…');
-
-const {
-  TELEGRAM_TOKEN,
-  ADMIN_ID,
-  GITHUB_TOKEN,
-  GITHUB_OWNER,
-  GITHUB_REPO,
-  PORT,
-  NODE_ENV,
-} = process.env;
-
-const requiredEnv = ['TELEGRAM_TOKEN'];
-const missing = requiredEnv.filter((k) => !process.env[k]);
-
-if (missing.length) {
-  missing.forEach((name) => log.error(`🔴 Missing env: ${name}`));
-  throw new Error('Missing required environment variables.');
-}
-
-// Не логируем секреты в открытом виде
-log.info(`🟢 TELEGRAM_TOKEN OK (${maskToken(TELEGRAM_TOKEN)})`);
-if (ADMIN_ID) log.info('🟢 ADMIN_ID OK');
-if (GITHUB_TOKEN) log.info('🟢 GITHUB_TOKEN OK');
-if (GITHUB_OWNER) log.info('🟢 GITHUB_OWNER OK');
-if (GITHUB_REPO) log.info('🟢 GITHUB_REPO OK');
-
-// -----------------------------
-// 2) Инициализация GitHub (опционально)
-// -----------------------------
-let octokit = null;
-if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-  octokit = new Octokit({ auth: GITHUB_TOKEN });
-  log.info('🔗 Octokit initialized for GitHub integration');
-} else {
-  log.warn('ℹ️ GitHub integration not fully configured (optional).');
-}
-
-// -----------------------------
-// 3) Express (Render-friendly)
-// -----------------------------
-const app = express();
-const APP_PORT = Number(PORT) || 10000;
-
-app.get('/', (_req, res) => {
-  res.status(200).send('GENESIS WAR Bot is alive');
-});
-
-app.listen(APP_PORT, () => {
-  log.info(`🌍 Express listening on port ${APP_PORT}`);
-});
-
-// -----------------------------
-// 4) Telegram Bot (Polling)
-// -----------------------------
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-
-bot.on('polling_error', (err) => {
-  log.error('Polling error:', err?.message || err);
-});
-
-bot.getMe()
-  .then((me) => {
-    log.info(`✅ GENESIS active as @${me.username}`);
-  })
-  .catch((e) => log.error('getMe failed:', e?.message || e));
-
-// Регистрируем команды в меню Telegram
-(async () => {
+function registerUser(userId) {
+  const uid = String(userId);
   try {
-    await bot.setMyCommands([
-      { command: 'start', description: 'Начать работу' },
-      { command: 'info', description: 'Информация о боте' },
-      { command: 'map', description: 'Показать карту (или ввести город)' },
-    ]);
-  } catch (e) {
-    log.warn('setMyCommands failed:', e?.message || e);
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+    if (!users[uid]) {
+      users[uid] = { registered: true, ts: Date.now() };
+      fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+      console.log(`👤 Registered user: ${uid}`);
+    }
+  } catch (err) {
+    console.error('❌ users.json write error:', err);
   }
-})();
+}
 
-// Удобная раскладка клавиатуры
-function defaultKeyboard() {
+function getUserCount() {
+  try {
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+    return Object.keys(users).length;
+  } catch {
+    return 0;
+  }
+}
+
+// -----------------------------
+// 🌐 GitHub map-status.json via Octokit
+// -----------------------------
+async function fetchMapStatus() {
+  const res = await octokit.rest.repos.getContent({
+    owner: GITHUB_OWNER,
+    repo:  GITHUB_REPO,
+    path:  'map-status.json',
+    ref:   GITHUB_BRANCH
+  });
+  const raw = Buffer.from(res.data.content, 'base64').toString('utf8');
   return {
-    reply_markup: {
-      keyboard: [
-        [{ text: '🤖 Info' }, { text: '🗺 Map' }],
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false,
-    },
+    sha:    res.data.sha,
+    status: JSON.parse(raw)
   };
 }
 
-// -----------------------------
-// 5) Команды
-// -----------------------------
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  try {
-    await bot.sendMessage(
-      chatId,
-      'Добро пожаловать в GENESIS WAR Bot.\nКоманды:\n' +
-        '• /info — информация\n' +
-        '• /map [запрос] — карта/поиск\n\n' +
-        'Также доступны кнопки ниже.',
-      defaultKeyboard()
-    );
-  } catch (e) {
-    log.error('Error in /start:', e?.message || e);
-  }
-});
+async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil = null }) {
+  const { sha, status: current } = await fetchMapStatus().catch(() => ({ sha: undefined, status: {} }));
+  const newStatus   = {
+    ...current,
+    enabled: Boolean(enabled),
+    message: message ?? current?.message ?? '',
+    theme:   theme ?? current?.theme ?? 'auto',
+    disableUntil: disableUntil
+  };
+  const contentBase = Buffer.from(JSON.stringify(newStatus, null, 2)).toString('base64');
 
-bot.onText(/\/info/, async (msg) => {
-  const chatId = msg.chat.id;
-  try {
-    const isAdmin = ADMIN_ID && String(msg.from?.id) === String(ADMIN_ID);
-    const infoText = [
-      '🤖 GENESIS WAR Bot',
-      `ENV: ${NODE_ENV || 'production'}`,
-      `Admin access: ${isAdmin ? 'yes' : 'no'}`,
-      octokit ? 'GitHub: connected' : 'GitHub: not configured',
-    ].join('\n');
-
-    await bot.sendMessage(chatId, infoText, defaultKeyboard());
-  } catch (e) {
-    log.error('Error in /info:', e?.message || e);
-  }
-});
-
-// Обработка /map и /map <что-то>
-bot.onText(/\/map(?:\s+(.+))?/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const args = match?.[1]?.trim() || '';
-  log.info('Map command received', { args });
-
-  try {
-    if (!args) {
-      await bot.sendMessage(
-        chatId,
-        'Укажи запрос после команды. Примеры:\n' +
-          '• /map Berlin\n' +
-          '• /map Tokyo',
-        defaultKeyboard()
-      );
-      return;
-    }
-
-    // Здесь твоя бизнес-логика карты.
-    // Пока отправим эхо-ответ:
-    await bot.sendMessage(chatId, `🗺 Запрос на карту: ${args}`, defaultKeyboard());
-  } catch (e) {
-    log.error('Error in /map:', e?.message || e);
-  }
-});
-
-// -----------------------------
-// 6) Поддержка кнопок из клавиатуры
-// -----------------------------
-bot.on('message', async (msg) => {
-  if (!msg.text) return;
-  const chatId = msg.chat.id;
-  const text = msg.text.trim();
-
-  // Локальные кнопки
-  if (text === '🤖 Info' || /^info$/i.test(text)) {
-    return bot.emit('text', { ...msg, text: '/info' });
-  }
-  if (text === '🗺 Map' || /^map$/i.test(text)) {
-    // Предложим формат использования
-    try {
-      await bot.sendMessage(
-        chatId,
-        'Использование: /map <город/запрос>\nНапример: /map Berlin',
-        defaultKeyboard()
-      );
-    } catch (e) {
-      log.error('Error in Map button response:', e?.message || e);
-    }
-    return;
-  }
-});
-
-// -----------------------------
-// 7) GitHub — пример использования (опционально)
-// -----------------------------
-async function exampleGitHubPing() {
-  if (!octokit) return;
-  try {
-    // Пример запроса: получаем информацию о репозитории
-    const { data } = await octokit.repos.get({
-      owner: GITHUB_OWNER,
-      repo: GITHUB_REPO,
-    });
-    log.info('GitHub repo ok:', {
-      full_name: data.full_name,
-      private: data.private,
-      default_branch: data.default_branch,
-    });
-  } catch (e) {
-    log.warn('GitHub check failed:', e?.message || e);
-  }
+  await octokit.rest.repos.createOrUpdateFileContents({
+    owner:   GITHUB_OWNER,
+    repo:    GITHUB_REPO,
+    path:    'map-status.json',
+    message: `🔄 Update map-status: enabled=${newStatus.enabled}`,
+    content: contentBase,
+    sha,
+    branch:  GITHUB_BRANCH
+  });
 }
-exampleGitHubPing();
 
 // -----------------------------
-// 8) Глобальные ловушки ошибок
+// 📢 Broadcast to all users
 // -----------------------------
-process.on('unhandledRejection', (reason) => {
-  log.error('unhandledRejection:', reason?.message || reason);
-});
-process.on('uncaughtException', (err) => {
-  log.error('uncaughtException:', err?.message || err);
+async function broadcastAll(bot, message) {
+  let users = {};
+  try {
+    users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+  } catch {}
+
+  for (const uid of Object.keys(users)) {
+    try {
+      await bot.sendMessage(uid, message);
+    } catch (err) {
+      console.error(`⚠️ Cannot send to ${uid}:`, err.response?.body || err);
+      if (err.response?.statusCode === 403) {
+        delete users[uid];
+        console.log(`🗑️ Removed user ${uid}`);
+      }
+    }
+  }
+
+  try {
+    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+  } catch {}
+}
+
+// -----------------------------
+// 🗂️ Reply menu keyboard
+// -----------------------------
+function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
+  const isAdmin = String(uid) === ADMIN_ID;
+  const baseButtons = [
+    ['🤖 Info', '🛣 Roadmap'],
+    ['🌐 Links', '🗺 Map'],
+    ['❓ Help']
+  ];
+  const adminButtons = [
+    ['📢 Broadcast', '📃 Logs'],
+    ['⚠️ Disable map', '🔄 Enable map'],
+    ['👥 Add admin', '📑 Admins']
+  ];
+
+  const keyboard = isAdmin
+    ? [...baseButtons, ...adminButtons]
+    : baseButtons;
+
+  bot.sendMessage(chatId, text, {
+    reply_markup: { keyboard, resize_keyboard: true }
+  }).catch(console.error);
+}
+
+// -----------------------------
+// 🌐 Express keep-alive & heartbeat
+// -----------------------------
+const app = express();
+app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
+app.listen(PORT, () => console.log(`🌍 Express listening on port ${PORT}`));
+
+setInterval(() => {
+  console.log('💓 Bot heartbeat – still alive');
+}, 60 * 1000);
+
+// -----------------------------
+// 🤖 Initialize Telegram Bot
+// -----------------------------
+activateBotFlag();
+const bot = new TelegramBot(TOKEN, { polling: true });
+console.log('🚀 TelegramBot instance created, polling started');
+
+bot.on('error',         err => console.error('💥 Telegram API error:', err));
+bot.on('polling_error', err => console.error('🛑 Polling error:', err));
+bot.on('webhook_error', err => console.error('🛑 Webhook error:', err));
+
+// Confirm bot identity
+let launched = false;
+bot.getMe()
+  .then(me => {
+    console.log(`✅ GENESIS active as @${me.username}`);
+    launched = true;
+  })
+  .catch(console.error);
+
+// -----------------------------
+// ⚙️ Message & command handling
+// -----------------------------
+const broadcastPending = new Set();
+const disablePending   = new Set();
+
+bot.on('message', async (msg) => {
+  const text   = msg.text || '';
+  const chatId = msg.chat.id;
+  const uid    = String(msg.from.id);
+
+  console.log(`📨 [${chatId}] ${msg.from.username || uid}: ${text}`);
+
+  // Handle pending broadcast
+  if (
+    broadcastPending.has(uid) &&
+    msg.reply_to_message?.text?.includes('Write broadcast text')
+  ) {
+    broadcastPending.delete(uid);
+    await broadcastAll(bot, text);
+    await bot.sendMessage(uid, '✅ Broadcast sent.');
+    return sendReplyMenu(bot, chatId, uid);
+  }
+
+  // Handle pending disable-map
+  if (
+    disablePending.has(uid) &&
+    msg.reply_to_message?.text?.includes('Confirm disabling map')
+  ) {
+    disablePending.delete(uid);
+    const disableMsg = '🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.';
+
+    try {
+      await updateMapStatus({
+        enabled: false,
+        message: disableMsg,
+        theme:   'auto',
+        // Можно задать конкретную дату восстановления, пока ставим null
+        disableUntil: null
+      });
+    } catch (err) {
+      console.error('🛑 Disable error:', err);
+      await bot.sendMessage(chatId, '❌ Failed to disable map.');
+      return sendReplyMenu(bot, chatId, uid);
+    }
+
+    await broadcastAll(bot, disableMsg);
+    await bot.sendMessage(chatId, '✅ Map disabled and everyone notified.');
+    return sendReplyMenu(bot, chatId, uid);
+  }
+
+  // Main menu & commands
+  switch (text) {
+    case '/start':
+      registerUser(uid);
+      return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
+
+    case '/help':
+      return sendReplyMenu(
+        bot,
+        chatId,
+        uid,
+        '📖 Commands:\n' +
+        '/start — register\n' +
+        '/status — bot status\n' +
+        '/menu — show menu'
+      );
+
+    case '/status':
+      return bot.sendMessage(chatId,
+        `📊 Status:\n` +
+        `- Launched: ${launched}\n` +
+        `- Bot enabled: ${isBotEnabled()}\n` +
+        `- Registered users: ${getUserCount()}`
+      ).catch(console.error);
+
+    case '/menu':
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '📢 Broadcast':
+      if (uid === ADMIN_ID) {
+        broadcastPending.add(uid);
+        return bot.sendMessage(chatId, '✏️ Write broadcast text:', {
+          reply_markup: { force_reply: true }
+        });
+      }
+      break;
+
+    case '⚠️ Disable map':
+      if (uid === ADMIN_ID) {
+        disablePending.add(uid);
+        return bot.sendMessage(chatId, '⚠️ Confirm disabling map:', {
+          reply_markup: { force_reply: true }
+        });
+      }
+      break;
+
+    case '🔄 Enable map':
+      if (uid === ADMIN_ID) {
+        const enableMsg = '🔓 Genesis is back online!';
+        try {
+          await updateMapStatus({
+            enabled: true,
+            message: enableMsg,
+            theme:   'auto',
+            // При включении карты снимаем ограничение
+            disableUntil: null
+          });
+          await bot.sendMessage(chatId, '✅ Map enabled.');
+        } catch (err) {
+          console.error('🛑 Enable error:', err);
+          await bot.sendMessage(chatId, '❌ Failed to enable map.');
+        }
+        return sendReplyMenu(bot, chatId, uid);
+      }
+      break;
+
+    case '🤖 Info':
+      try {
+        const { status } = await fetchMapStatus();
+        await bot.sendMessage(chatId,
+          `🧐 Info:\n` +
+          `- enabled: ${status.enabled}\n` +
+          `- message: ${status.message}`
+        );
+      } catch (err) {
+        console.error('🛑 Info error:', err);
+        await bot.sendMessage(chatId, '❌ Failed to fetch info.');
+      }
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '🛣 Roadmap':
+      await bot.sendMessage(chatId,
+        `🛣 Roadmap:\nhttps://github.com/${GITHUB_OWNER}/${GITHUB_REPO}` +
+        `/blob/${GITHUB_BRANCH}/ROADMAP.md`
+      );
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '🌐 Links':
+      await bot.sendMessage(chatId,
+        '🌐 Links:\n' +
+        `• GitHub: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}\n` +
+        '• Support: https://t.me/your_support_chat'
+      );
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '🗺 Map': {
+      const meta = {
+        chatId,
+        userId: msg.from?.id,
+        username: msg.from?.username,
+      };
+
+      logger.info('Map command received from user', meta);
+
+      try {
+        // ВАЖНО: корректно достаём status из fetchMapStatus()
+        const { status } = await fetchMapStatus();
+
+        // ⛔ Если временно отключена до даты
+        if (status?.disableUntil) {
+          const until = new Date(status.disableUntil);
+          if (!Number.isNaN(until.getTime()) && until > new Date()) {
+            logger.info('Map is temporarily disabled', { disableUntil: status.disableUntil });
+            await bot.sendMessage(chatId, `🛑 Карта временно отключена до ${until.toLocaleString('ru-RU')}.`);
+            return sendReplyMenu(bot, chatId, uid);
+          }
+        }
+
+        // ⛔ Отключена вручную
+        if (!status?.enabled) {
+          logger.info('Map is disabled by flag enabled=false');
+          await bot.sendMessage(chatId, '🛑 Карта сейчас отключена.');
+          return sendReplyMenu(bot, chatId, uid);
+        }
+
+        // ✅ Отправляем ссылку/сообщение карты
+        const messageToSend = status.message || '🗺 Карта доступна, но сообщение не задано.';
+        logger.debug('Sending map message', { parse_mode: 'Markdown', message: messageToSend });
+        await bot.sendMessage(chatId, messageToSend, {
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        });
+        logger.info('Map message sent', meta);
+      } catch (err) {
+        logger.error('Map handler failed', { error: err.message, stack: err.stack });
+
+        await bot.sendMessage(chatId, '❌ Ошибка при получении карты.');
+
+        // Доп. уведомление админу
+        if (ADMIN_CHAT_ID) {
+          const brief = `❌ Map error\nchat: ${chatId}\nuser: @${meta.username || 'unknown'}\nerr: ${err.message}`;
+          try {
+            await bot.sendMessage(ADMIN_CHAT_ID, brief);
+            logger.info('Admin notified about map error', { adminId: ADMIN_CHAT_ID });
+          } catch (notifyErr) {
+            logger.error('Failed to notify admin', { error: notifyErr.message });
+          }
+        }
+      }
+
+      return sendReplyMenu(bot, chatId, uid);
+    }
+
+    case '❓ Help':
+      await bot.sendMessage(chatId,
+        '❓ Help:\n– Use the menu buttons\n– /help for commands\n– Contact admin if needed'
+      );
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '📃 Logs':
+      try {
+        const logs = fs.readFileSync(logsPath, 'utf8');
+        // Дробим логи на части, если слишком длинные
+        const chunkSize = 3500;
+        for (let i = 0; i < logs.length; i += chunkSize) {
+          await bot.sendMessage(chatId, `📃 Logs (part ${Math.floor(i/chunkSize)+1}):\n` + logs.slice(i, i + chunkSize));
+        }
+      } catch {
+        await bot.sendMessage(chatId, '📃 Logs not available.');
+      }
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '👥 Add admin':
+      await bot.sendMessage(chatId, '👥 Add admin not implemented.');
+      return sendReplyMenu(bot, chatId, uid);
+
+    case '📑 Admins':
+      await bot.sendMessage(chatId, `📑 Admins:\n• ${ADMIN_ID}`);
+      return sendReplyMenu(bot, chatId, uid);
+
+    default:
+      return sendReplyMenu(bot, chatId, uid);
+  }
 });
 
-// Финальный лог
-log.info('🚀 TelegramBot instance created, polling started');
+// -----------------------------
+// 🛑 Graceful shutdown
+// -----------------------------
+async function cleanUp() {
+  console.log('🛑 Received shutdown signal, stopping bot…');
+  try {
+    await bot.stopPolling();
+    console.log('✅ Polling stopped, exiting process.');
+  } catch (err) {
+    console.error('❌ Error during stopPolling:', err);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', cleanUp);
+process.on('SIGTERM', cleanUp);
+
+// -----------------------------
+// 🐶 Watchdog: restart polling
+// -----------------------------
+setInterval(async () => {
+  if (!bot.isPolling()) {
+    console.warn('⚠️ Polling stopped unexpectedly, restarting…');
+    try {
+      await bot.startPolling();
+      console.log('🔄 Polling restarted');
+    } catch (err) {
+      console.error('❌ Failed to restart polling:', err);
+    }
+  }
+}, 30 * 1000);
