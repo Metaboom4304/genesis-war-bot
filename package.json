@@ -2,6 +2,7 @@
   "name": "genesis-war-bot",
   "version": "1.0.0",
   "description": "Telegram bot for GENESIS WAR",
+  "type": "module",
   "main": "GENESIS_LAUNCHER.js",
   "scripts": {
     "start": "node GENESIS_LAUNCHER.js"
