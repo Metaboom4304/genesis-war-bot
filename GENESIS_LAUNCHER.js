@@ -359,23 +359,62 @@ bot.on('message', async (msg) => {
       );
       return sendReplyMenu(bot, chatId, uid);
 
-    case '🗺 Map':
+      case '🗺 Map': {
+  const meta = {
+    chatId,
+    userId: msg.from?.id,
+    username: msg.from?.username,
+  };
+
+  logger.info('Map command received', meta);
+
   try {
-    const { status } = await fetchMapStatus();
-    const mapUrl = 'https://genesis-data.onrender.com'; // ← актуальная ссылка
+    const status = await fetchMapStatus();
 
-    const message = status.enabled
-      ? `[🗺️ Открыть карту](${mapUrl})\n\n${status.message || ''}`
-      : '🔒 Карта временно отключена.\nGenesis скоро вернётся.';
+    // ⛔ Если временно отключена до даты
+    if (status.disableUntil) {
+      const until = new Date(status.disableUntil);
+      if (!Number.isNaN(until.getTime()) && until > new Date()) {
+        logger.info('Map is temporarily disabled', { disableUntil: status.disableUntil });
+        await bot.sendMessage(chatId, `🛑 Карта временно отключена до ${until.toLocaleString('ru-RU')}.`);
+        return sendReplyMenu(bot, chatId, uid);
+      }
+    }
 
-    await bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown'
+    // ⛔ Отключена вручную
+    if (!status.enabled) {
+      logger.info('Map is disabled by flag enabled=false');
+      await bot.sendMessage(chatId, '🛑 Карта сейчас отключена.');
+      return sendReplyMenu(bot, chatId, uid);
+    }
+
+    // ✅ Отправляем ссылку на карту
+    logger.debug('Sending map message', { parse_mode: 'Markdown', message: status.message });
+    await bot.sendMessage(chatId, status.message, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true
     });
+    logger.info('Map message sent', meta);
   } catch (err) {
-    console.error('🛑 Map error:', err);
+    logger.error('Map handler failed', { error: err.message, stack: err.stack });
+
     await bot.sendMessage(chatId, '❌ Ошибка при получении карты.');
+
+    // Доп. уведомление админу
+    const adminId = process.env.ADMIN_CHAT_ID;
+    if (adminId) {
+      const brief = `❌ Map error\nchat: ${chatId}\nuser: @${meta.username || 'unknown'}\nerr: ${err.message}`;
+      try {
+        await bot.sendMessage(adminId, brief);
+        logger.info('Admin notified about map error', { adminId });
+      } catch (notifyErr) {
+        logger.error('Failed to notify admin', { error: notifyErr.message });
+      }
+    }
   }
+
   return sendReplyMenu(bot, chatId, uid);
+}
 
 
     case '❓ Help':
