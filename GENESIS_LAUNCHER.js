@@ -1,21 +1,22 @@
-console.log('🟡 GENESIS_LAUNCHER starting...');
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🧠 GENESIS_LAUNCHER — Telegram Control with Express Keep-Alive & Heartbeat    
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
 'use strict';
 
-require('dotenv').config();            // Load environment variables
+console.log('🟡 GENESIS_LAUNCHER starting…');
+
+require('dotenv').config();            // Load .env if present
+
+// -----------------------------
+// 📦 Imports
+// -----------------------------
 const fs          = require('fs');
 const path        = require('path');
+const http        = require('http');
 const express     = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { Octokit } = require('@octokit/rest');
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🛡️  ENV GUARD: make sure all required variables are set                     
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 🛡️ ENV GUARD
+// -----------------------------
 const requiredEnv = [
   'TELEGRAM_TOKEN',
   'ADMIN_ID',
@@ -25,24 +26,25 @@ const requiredEnv = [
 ];
 
 let envValid = true;
-console.log('\n🤍 Initializing GENESIS_LAUNCHER…');
+console.log('\n🤍 Checking required environment variables…');
+
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
     envValid = false;
   } else {
-    console.log(`🟢 ${key} present`);
+    console.log(`🟢 ${key} OK`);
   }
 }
+
 if (!envValid) {
-  console.error('⛔️ Please set all ENV variables and restart.');
+  console.error('⛔ Please set all ENV variables and restart.');
   process.exit(1);
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 📦  Constants                                                               
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 📑 Config constants
+// -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const ADMIN_ID      = String(process.env.ADMIN_ID);
 const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
@@ -50,20 +52,22 @@ const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
+const octokit       = new Octokit({ auth: GITHUB_TOKEN });
+const PORT          = process.env.PORT || 3000;
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 📂  File system paths & bot-enabled flag                                    
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 🗂️ File system & lock flag
+// -----------------------------
 const memoryPath = path.join(__dirname, 'memory');
 const usersPath  = path.join(__dirname, 'users.json');
 const lockPath   = path.join(memoryPath, 'botEnabled.lock');
 
+// Ensure directories and files
 if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath);
 if (!fs.existsSync(usersPath))  fs.writeFileSync(usersPath, '{}');
 if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled');
 
+// Flag helpers
 function isBotEnabled() {
   return fs.existsSync(lockPath);
 }
@@ -74,10 +78,9 @@ function deactivateBotFlag() {
   if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 📑  User registration & stats                                                
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 👥 User registration & stats
+// -----------------------------
 function registerUser(userId) {
   const uid = String(userId);
   try {
@@ -88,7 +91,7 @@ function registerUser(userId) {
       console.log(`👤 Registered user: ${uid}`);
     }
   } catch (err) {
-    console.error('❌ Failed to write users.json:', err);
+    console.error('❌ users.json write error:', err);
   }
 }
 
@@ -101,10 +104,9 @@ function getUserCount() {
   }
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🌐  GitHub map-status.json via Octokit                                       
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 🌐 GitHub map-status.json via Octokit
+// -----------------------------
 async function fetchMapStatus() {
   const res = await octokit.rest.repos.getContent({
     owner: GITHUB_OWNER,
@@ -113,11 +115,14 @@ async function fetchMapStatus() {
     ref:   GITHUB_BRANCH
   });
   const raw = Buffer.from(res.data.content, 'base64').toString();
-  return { sha: res.data.sha, status: JSON.parse(raw) };
+  return {
+    sha:    res.data.sha,
+    status: JSON.parse(raw)
+  };
 }
 
 async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil }) {
-  const { sha }    = await fetchMapStatus();
+  const { sha } = await fetchMapStatus();
   const newStatus = { enabled, message, theme, disableUntil };
   const content   = Buffer.from(JSON.stringify(newStatus, null, 2)).toString('base64');
 
@@ -132,15 +137,15 @@ async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil 
   });
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 📢  Broadcast messages                                                       
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 📢 Broadcast to all users
+// -----------------------------
 async function broadcastAll(bot, message) {
   let users = {};
   try {
     users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
   } catch {}
+  
   for (const uid of Object.keys(users)) {
     try {
       await bot.sendMessage(uid, message);
@@ -152,19 +157,17 @@ async function broadcastAll(bot, message) {
       }
     }
   }
+
   try {
     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
   } catch {}
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🗂️  Reply-keyboard menus                                                     
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 🗂️ Reply menu keyboard
+// -----------------------------
 function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
-  uid = String(uid);
-  const isAdmin = uid === ADMIN_ID;
-
+  const isAdmin = String(uid) === ADMIN_ID;
   const baseButtons = [
     ['🤖 Info', '🛣 Roadmap'],
     ['🌐 Links', '🗺 Map'],
@@ -175,6 +178,7 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
     ['⚠️ Disable map', '🔄 Enable map'],
     ['👥 Add admin', '📑 Admins']
   ];
+
   const keyboard = isAdmin
     ? baseButtons.concat(adminButtons)
     : baseButtons;
@@ -184,35 +188,31 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
   }).catch(console.error);
 }
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🌐  Express keep-alive & Heartbeat                                            
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// 🌐 Express keep-alive & heartbeat
+// -----------------------------
 const app = express();
-const PORT_ = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
-app.listen(PORT_, () => console.log(`🌐 Express listening on port ${PORT_}`));
+app.listen(PORT, () => console.log(`🌍 Express listening on port ${PORT}`));
 
-// Heartbeat so Render doesn’t think we’ve gone idle
 setInterval(() => {
   console.log('💓 Bot heartbeat – still alive');
 }, 60 * 1000);
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🤖  Bot initialization & polling                                              
-// ╚════════════════════════════════════════════════════════════════════════════╝
+// -----------------------------
+// 🤖 Initialize Telegram Bot
+// -----------------------------
+activateBotFlag();
 
-activateBotFlag();  // mark bot enabled
-
-console.log('🚀 Initializing TelegramBot instance…');
 const bot = new TelegramBot(TOKEN, { polling: true });
-console.log('🚀 Polling started');
+console.log('🚀 TelegramBot instance created, polling started');
 
-// Error logging
-bot.on('error', err => console.error('💥 Telegram API error:', err.code, err.response?.body || err.message));
-bot.on('polling_error', err => console.error('🛑 Polling error:', err.code, err.response?.body || err.message));
-bot.on('webhook_error', err => console.error('🛑 Webhook error:', err.code, err.response?.body || err.message));
+// Error handlers
+bot.on('error',         err => console.error('💥 Telegram API error:', err));
+bot.on('polling_error', err => console.error('🛑 Polling error:', err));
+bot.on('webhook_error', err => console.error('🛑 Webhook error:', err));
 
+// Confirm bot identity
 let launched = false;
 bot.getMe()
   .then(me => {
@@ -221,10 +221,9 @@ bot.getMe()
   })
   .catch(console.error);
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// ⚙️  Command handlers & message flows                                            
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
+// -----------------------------
+// ⚙️ Message & command handling
+// -----------------------------
 const broadcastPending = new Set();
 const disablePending   = new Set();
 
@@ -233,9 +232,9 @@ bot.on('message', async msg => {
   const chatId = msg.chat.id;
   const uid    = String(msg.from.id);
 
-  console.log(`📨 [${chatId}] ${msg.from.username || 'unknown'}: ${text}`);
+  console.log(`📨 [${chatId}] ${msg.from.username || uid}: ${text}`);
 
-  // — Broadcast force-reply
+  // — Handle broadcast replies
   if (
     broadcastPending.has(uid) &&
     msg.reply_to_message?.text.includes('Write broadcast text')
@@ -246,20 +245,19 @@ bot.on('message', async msg => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // — Disable map force-reply
+  // — Handle disable-map confirmation
   if (
     disablePending.has(uid) &&
     msg.reply_to_message?.text.includes('Confirm disabling map')
   ) {
     disablePending.delete(uid);
-    const disableMsg =
-      '🔒 Genesis temporarily disabled.\nWe\'ll be back soon with something big.';
+    const disableMsg = '🔒 Genesis temporarily disabled.\nWe\'ll be back soon with something big.';
 
     try {
       await updateMapStatus({
         enabled: false,
         message: disableMsg,
-        theme: 'auto',
+        theme:   'auto',
         disableUntil: new Date().toISOString()
       });
     } catch (err) {
@@ -273,39 +271,35 @@ bot.on('message', async msg => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // — Main commands
+  // — Main menu & commands
   switch (text) {
     case '/start':
       registerUser(uid);
-      sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re now registered.');
-      break;
+      return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
 
     case '/help':
-      sendReplyMenu(bot, chatId, uid,
+      return sendReplyMenu(bot, chatId, uid,
         '📖 Commands:\n' +
         '/start — register\n' +
         '/status — bot status\n' +
         '/menu — show menu'
       );
-      break;
 
     case '/status':
-      bot.sendMessage(chatId,
+      return bot.sendMessage(chatId,
         `📊 Status:\n` +
         `- Launched: ${launched}\n` +
         `- Bot enabled: ${isBotEnabled()}\n` +
-        `- Users: ${getUserCount()}`
+        `- Registered users: ${getUserCount()}`
       ).catch(console.error);
-      break;
 
     case '/menu':
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '📢 Broadcast':
       if (uid === ADMIN_ID) {
         broadcastPending.add(uid);
-        bot.sendMessage(chatId, '✏️ Write broadcast text:', {
+        return bot.sendMessage(chatId, '✏️ Write broadcast text:', {
           reply_markup: { force_reply: true }
         });
       }
@@ -314,7 +308,7 @@ bot.on('message', async msg => {
     case '⚠️ Disable map':
       if (uid === ADMIN_ID) {
         disablePending.add(uid);
-        bot.sendMessage(chatId, '⚠️ Confirm disabling map:', {
+        return bot.sendMessage(chatId, '⚠️ Confirm disabling map:', {
           reply_markup: { force_reply: true }
         });
       }
@@ -327,7 +321,7 @@ bot.on('message', async msg => {
           await updateMapStatus({
             enabled: true,
             message: enableMsg,
-            theme: 'auto',
+            theme:   'auto',
             disableUntil: new Date().toISOString()
           });
           await bot.sendMessage(chatId, '✅ Map enabled.');
@@ -335,41 +329,38 @@ bot.on('message', async msg => {
           console.error('🛑 Enable error:', err);
           await bot.sendMessage(chatId, '❌ Failed to enable map.');
         }
-        sendReplyMenu(bot, chatId, uid);
+        return sendReplyMenu(bot, chatId, uid);
       }
       break;
 
     case '🤖 Info':
       try {
         const { status } = await fetchMapStatus();
-        await bot.sendMessage(
-          chatId,
-          `🧐 Info:\n- enabled: ${status.enabled}\n- message: ${status.message}`
+        await bot.sendMessage(chatId,
+          `🧐 Info:\n` +
+          `- enabled: ${status.enabled}\n` +
+          `- message: ${status.message}`
         );
       } catch (err) {
         console.error('🛑 Info error:', err);
         await bot.sendMessage(chatId, '❌ Failed to fetch info.');
       }
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '🛣 Roadmap':
-      await bot.sendMessage(
-        chatId,
-        `🛣 Roadmap:\nhttps://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/ROADMAP.md`
+      await bot.sendMessage(chatId,
+        `🛣 Roadmap:\nhttps://github.com/${GITHUB_OWNER}/${GITHUB_REPO}` +
+        `/blob/${GITHUB_BRANCH}/ROADMAP.md`
       );
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '🌐 Links':
-      await bot.sendMessage(
-        chatId,
+      await bot.sendMessage(chatId,
         '🌐 Links:\n' +
         `• GitHub: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}\n` +
         '• Support: https://t.me/your_support_chat'
       );
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '🗺 Map':
       try {
@@ -379,16 +370,13 @@ bot.on('message', async msg => {
         console.error('🛑 Map error:', err);
         await bot.sendMessage(chatId, '❌ Failed to fetch map.');
       }
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '❓ Help':
-      await bot.sendMessage(
-        chatId,
-        '❓ Help:\n– Use the menu buttons\n– /help for commands\n– Contact admin for issues'
+      await bot.sendMessage(chatId,
+        '❓ Help:\n– Use the menu buttons\n– /help for commands\n– Contact admin if needed'
       );
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '📃 Logs':
       try {
@@ -397,40 +385,50 @@ bot.on('message', async msg => {
       } catch {
         await bot.sendMessage(chatId, '📃 Logs not available.');
       }
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     case '👥 Add admin':
-      await bot.sendMessage(chatId, '👥 Add admin not implemented yet.');
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return bot.sendMessage(chatId, '👥 Add admin not implemented.').then(() =>
+        sendReplyMenu(bot, chatId, uid)
+      );
 
     case '📑 Admins':
       await bot.sendMessage(chatId, `📑 Admins:\n• ${ADMIN_ID}`);
-      sendReplyMenu(bot, chatId, uid);
-      break;
+      return sendReplyMenu(bot, chatId, uid);
 
     default:
-      sendReplyMenu(bot, chatId, uid);
+      return sendReplyMenu(bot, chatId, uid);
   }
 });
 
-// ╔════════════════════════════════════════════════════════════════════════════╗
-// 🛑  Graceful shutdown on SIGINT/SIGTERM                                       
-// ╚════════════════════════════════════════════════════════════════════════════╝
-
-function cleanUp() {
-  console.log('🛑 Shutting down gracefully...');
-  bot.stopPolling()
-    .then(() => {
-      console.log('✅ Polling stopped, exiting process');
-      process.exit(0);
-    })
-    .catch(err => {
-      console.error('❌ Error stopping polling:', err);
-      process.exit(1);
-    });
+// -----------------------------
+// 🛑 Graceful shutdown
+// -----------------------------
+async function cleanUp() {
+  console.log('🛑 Received shutdown signal, stopping bot…');
+  try {
+    await bot.stopPolling();
+    console.log('✅ Polling stopped, exiting process.');
+  } catch (err) {
+    console.error('❌ Error during stopPolling:', err);
+  }
+  process.exit(0);
 }
 
 process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
+
+// -----------------------------
+// 🐶 Watchdog: restart polling
+// -----------------------------
+setInterval(async () => {
+  if (!bot.isPolling()) {
+    console.warn('⚠️ Polling stopped unexpectedly, restarting…');
+    try {
+      await bot.startPolling();
+      console.log('🔄 Polling restarted');
+    } catch (err) {
+      console.error('❌ Failed to restart polling:', err);
+    }
+  }
+}, 30 * 1000);
