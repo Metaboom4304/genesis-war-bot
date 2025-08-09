@@ -1,11 +1,16 @@
-const fs = require('fs');
-const path = require('path');
+// lockManager.js
+const fs   = require('fs')
+const path = require('path')
+const LOCK_PATH = path.join(__dirname, 'memory', 'map.lock')
 
-const LOCK_DIR = path.join(__dirname, '..', 'memory'); // путь к папке lock-файлов
-
-function isEnabled(lockName) {
-  const lockPath = path.join(LOCK_DIR, `${lockName}.lock`);
-  return fs.existsSync(lockPath);
+function checkLock() {
+  // создаём папку memory, если нет
+  const dir = path.dirname(LOCK_PATH)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
 }
 
-module.exports = { isEnabled };
+function isLocked() {
+  return fs.existsSync(LOCK_PATH)
+}
+
+module.exports = { checkLock, isLocked }
