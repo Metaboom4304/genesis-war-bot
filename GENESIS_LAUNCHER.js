@@ -1,4 +1,4 @@
-import 'dotenv/config'; // ✅ Это корректный ESM импорт
+import 'dotenv/config';
 console.log('TELEGRAM_TOKEN =', process.env.TELEGRAM_TOKEN); // Проверка
 
 // GENESIS_LAUNCHER.mjs
