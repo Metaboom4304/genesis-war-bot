@@ -1,5 +1,5 @@
-require('dotenv').config();
-console.log('TELEGRAM_TOKEN =', process.env.TELEGRAM_TOKEN);
+require('dotenv').config(); // ✅ Загружает .env файл
+console.log('TELEGRAM_TOKEN =', process.env.TELEGRAM_TOKEN); // Проверка
 
 // GENESIS_LAUNCHER.mjs
 'use strict';
