@@ -1,7 +1,7 @@
-// mapStatus.js
 import { logger } from './logger.js';
+import JSON5 from 'json5';
 
-const MAP_STATUS_URL = process.env.MAP_STATUS_URL // Лучше через env
+const MAP_STATUS_URL = process.env.MAP_STATUS_URL
   || 'https://raw.githubusercontent.com/<org>/<repo>/main/map-status.json';
 
 export async function fetchMapStatus() {
@@ -29,7 +29,7 @@ export async function fetchMapStatus() {
 
   let json;
   try {
-    json = JSON.parse(raw);
+    json = JSON5.parse(raw); // 👈 теперь поддерживаются комментарии
   } catch (e) {
     logger.error('Invalid JSON in map status', { error: e.message, bodySnippet: raw.slice(0, 200) });
     throw new Error('INVALID_JSON');
