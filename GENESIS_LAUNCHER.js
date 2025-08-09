@@ -371,7 +371,7 @@ bot.on('message', async (msg) => {
     username: msg.from?.username,
   };
 
-  logger.info('Map command received', meta);
+  console.info(`Map command received from user`, meta);
 
   try {
     const status = await fetchMapStatus();
