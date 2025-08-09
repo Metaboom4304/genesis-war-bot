@@ -137,3 +137,32 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Docker
+Dockerfile
+docker-compose.yml
+*.env.docker
+
+# Testing frameworks
+playwright-report/
+cypress/videos/
+cypress/screenshots/
+
+# AI/ML files
+*.ckpt
+*.h5
+*.pth
+*.tflite
+
+# MacOS junk
+*.DS_Store
+
+# Windows junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# System files
+*.bak
+*.tmp
+*.old
