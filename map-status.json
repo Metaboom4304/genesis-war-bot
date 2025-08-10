@@ -1,6 +1,6 @@
 {
-  "enabled": true,
-  "message": "🔓 Genesis is back online!",
+  "enabled": false,
+  "message": "🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.",
   "theme": "auto",
   "disableUntil": null
 }
