@@ -1,6 +1,7 @@
 {
   "enabled": true,
-  "message": "🔓 Genesis is back online!",
+  "message": "🗺 Карта активна! Доступ только через Telegram-бота.",
+  "mapUrl": "https://genesis-data.onrender.com/map?token=__TOKEN__",
   "theme": "auto",
   "disableUntil": null
 }
