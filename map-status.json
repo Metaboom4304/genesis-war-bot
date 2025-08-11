@@ -1,6 +1,6 @@
 {
-  "enabled": false,
-  "message": "🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.",
+  "enabled": true,
+  "message": "🔓 Genesis is back online!",
   "mapUrl": "https://genesis-data.onrender.com/map?token=__TOKEN__",
   "theme": "auto",
   "disableUntil": null
