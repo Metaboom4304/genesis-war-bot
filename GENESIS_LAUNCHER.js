@@ -43,7 +43,27 @@ const usersPath  = path.join(__dirname, 'users.json');
 const lockPath   = path.join(memoryPath, 'botEnabled.lock');
 const logsPath   = path.join(__dirname, 'logs.txt');
 const commandsPath = path.join(__dirname, 'commands');
+const pidPath    = path.join(memoryPath, 'genesis.lock');
 
+// -----------------------------
+// 🧷 Защита от двойного запуска
+// -----------------------------
+if (fs.existsSync(pidPath)) {
+  const oldPid = fs.readFileSync(pidPath, 'utf8');
+  try {
+    process.kill(Number(oldPid), 0);
+    console.error(`⛔ Genesis already running (PID ${oldPid})`);
+    process.exit(1);
+  } catch {
+    fs.unlinkSync(pidPath);
+    console.warn('⚠️ Сталый PID найден, но процесс неактивен — перезапуск');
+  }
+}
+fs.writeFileSync(pidPath, String(process.pid));
+
+// -----------------------------
+// 📎 Инициализация директорий и файлов
+// -----------------------------
 for (const p of [memoryPath, commandsPath]) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -229,7 +249,7 @@ const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))
 for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
   try {
-    const { default: command } = await import(filepath);
+        const { default: command } = await import(filepath);
     if (!command?.name || typeof command.execute !== 'function') {
       console.warn(`⚠️ Skip ${file}: invalid command shape`);
       continue;
@@ -249,3 +269,96 @@ setupBroadcastRegex(bot, [Number(ADMIN_ID)], { usersPath });
 // -----------------------------
 // ✏️ Обработчик сообщений
 // -----------------------------
+bot.on('message', async (msg) => {
+  const text   = (msg.text || '').trim();
+  const chatId = msg.chat.id;
+  const uid    = String(msg.from.id);
+
+  // Broadcast reply
+  if (
+    broadcastPending.has(uid) &&
+    msg.reply_to_message?.text?.includes('Write broadcast text')
+  ) {
+    broadcastPending.delete(uid);
+    await broadcastAll(bot, text);
+    await bot.sendMessage(uid, '✅ Broadcast sent.');
+    return sendReplyMenu(bot, chatId, uid);
+  }
+
+  // Disable map confirm
+  if (
+    disablePending.has(uid) &&
+    msg.reply_to_message?.text?.includes('Confirm disabling map')
+  ) {
+    disablePending.delete(uid);
+    const disableMsg = '🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.';
+    try {
+      await updateMapStatus({
+        enabled: false,
+        message: disableMsg,
+        theme:   'auto',
+        disableUntil: null
+      });
+      await broadcastAll(bot, disableMsg);
+      await bot.sendMessage(chatId, '✅ Map disabled and everyone notified.');
+    } catch (err) {
+      console.error('🛑 Disable error:', err);
+      await bot.sendMessage(chatId, '❌ Failed to disable map.');
+    }
+    return sendReplyMenu(bot, chatId, uid);
+  }
+
+  // Команда /start
+  if (text === '/start') {
+    registerUser(uid);
+    return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
+  }
+
+  // Универсальный обработчик команд
+  const cmdKey = text.toLowerCase();
+  if (commands.has(cmdKey)) {
+    try {
+      await commands.get(cmdKey).execute(bot, msg);
+    } catch (err) {
+      console.error(`❌ Command ${cmdKey} failed:`, err);
+      await bot.sendMessage(chatId, '❌ Ошибка при выполнении команды.');
+    }
+    return;
+  }
+});
+
+// -----------------------------
+// 🛑 Graceful shutdown
+// -----------------------------
+async function cleanUp() {
+  console.log('🛑 Received shutdown signal, stopping bot…');
+  try {
+    await bot.stopPolling();
+    console.log('✅ Polling stopped.');
+  } catch (err) {
+    console.error('❌ Error during stopPolling:', err);
+  }
+  try {
+    if (fs.existsSync(pidPath)) fs.unlinkSync(pidPath);
+    console.log('🧹 PID lock removed.');
+  } catch {}
+  process.exit(0);
+}
+process.on('SIGINT', cleanUp);
+process.on('SIGTERM', cleanUp);
+
+// -----------------------------
+// 🐶 Watchdog
+// -----------------------------
+setInterval(async () => {
+  try {
+    const isPolling = typeof bot.isPolling === 'function' ? bot.isPolling() : true;
+    if (!isPolling) {
+      console.warn('⚠️ Polling stopped unexpectedly, restarting…');
+      await bot.startPolling();
+      console.log('🔄 Polling restarted');
+    }
+  } catch (err) {
+    console.error('❌ Failed to restart polling:', err);
+  }
+}, 30_000);
