@@ -1,3 +1,6 @@
+// -----------------------------
+// 📦 Импорты и конфигурация
+// -----------------------------
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
@@ -5,27 +8,21 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { Octokit } from '@octokit/rest';
 import { fileURLToPath } from 'url';
+import { setupBroadcastRegex } from './commands/broadcast_type.js';
 
 // -----------------------------
-// 🛡️ ENV GUARD
+// 🛡️ Проверка ENV
 // -----------------------------
 const requiredEnv = ['TELEGRAM_TOKEN', 'ADMIN_ID', 'GITHUB_TOKEN', 'GITHUB_OWNER', 'GITHUB_REPO'];
-let envValid = true;
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
-    envValid = false;
-  } else {
-    console.log(`🟢 ${key} OK`);
+    process.exit(1);
   }
-}
-if (!envValid) {
-  console.error('⛔ Please set all ENV variables and restart.');
-  process.exit(1);
 }
 
 // -----------------------------
-// 📑 Configuration
+// 📑 Константы
 // -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const ADMIN_ID      = String(process.env.ADMIN_ID);
@@ -37,7 +34,7 @@ const PORT          = process.env.PORT || 3000;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ADMIN_ID;
 
 // -----------------------------
-// 🗂️ Paths
+// 🗂️ Пути
 // -----------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -45,17 +42,17 @@ const memoryPath = path.join(__dirname, 'memory');
 const usersPath  = path.join(__dirname, 'users.json');
 const lockPath   = path.join(memoryPath, 'botEnabled.lock');
 const logsPath   = path.join(__dirname, 'logs.txt');
-
-if (!fs.existsSync(memoryPath)) fs.mkdirSync(memoryPath, { recursive: true });
-if (!fs.existsSync(usersPath))  fs.writeFileSync(usersPath, '{}');
-if (!fs.existsSync(lockPath))   fs.writeFileSync(lockPath, 'enabled');
-if (!fs.existsSync(logsPath))   fs.writeFileSync(logsPath, '');
-
 const commandsPath = path.join(__dirname, 'commands');
-if (!fs.existsSync(commandsPath)) fs.mkdirSync(commandsPath, { recursive: true });
+
+for (const p of [memoryPath, commandsPath]) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+if (!fs.existsSync(usersPath)) fs.writeFileSync(usersPath, '{}');
+if (!fs.existsSync(lockPath)) fs.writeFileSync(lockPath, 'enabled');
+if (!fs.existsSync(logsPath)) fs.writeFileSync(logsPath, '');
 
 // -----------------------------
-// 🧾 Logger
+// 🧾 Логгер
 // -----------------------------
 function writeLog(level, message, meta = null) {
   const time = new Date().toISOString();
@@ -72,7 +69,7 @@ const logger = {
 };
 
 // -----------------------------
-// 🔒 Flags & users
+// 🔒 Флаги и пользователи
 // -----------------------------
 function isBotEnabled() { return fs.existsSync(lockPath); }
 function activateBotFlag() { fs.writeFileSync(lockPath, 'enabled'); }
@@ -101,7 +98,7 @@ function getUserCount() {
 }
 
 // -----------------------------
-// 🌐 GitHub status via Octokit
+// 🌐 GitHub статус
 // -----------------------------
 const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
@@ -139,7 +136,7 @@ async function updateMapStatus({ enabled, message, theme = 'auto', disableUntil 
 }
 
 // -----------------------------
-// 📢 Broadcast all
+// 📢 Рассылка
 // -----------------------------
 async function broadcastAll(bot, message) {
   let users = {};
@@ -159,7 +156,7 @@ async function broadcastAll(bot, message) {
 }
 
 // -----------------------------
-// 🗂️ Reply keyboard menu
+// 🗂️ Меню
 // -----------------------------
 function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
   const isAdmin = String(uid) === ADMIN_ID;
@@ -189,26 +186,21 @@ app.listen(PORT, () => console.log(`🌍 Express listening on port ${PORT}`));
 setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 
 // -----------------------------
-// 🤖 Telegram Bot init
+// 🤖 Telegram Bot
 // -----------------------------
 activateBotFlag();
 const bot = new TelegramBot(TOKEN, { polling: true });
-
-bot.on('error',         err => console.error('💥 Telegram API error:', err));
-bot.on('polling_error', err => console.error('🛑 Polling error:', err));
-bot.on('webhook_error', err => console.error('🛑 Webhook error:', err));
 
 bot.getMe()
   .then(me => console.log(`✅ GENESIS active as @${me.username}`))
   .catch(console.error);
 
 // -----------------------------
-// 🧠 Shared context for commands
+// 🧠 Контекст
 // -----------------------------
 const broadcastPending = new Set();
 const disablePending   = new Set();
 
-// Делаем хелперы доступными для команд, которые мы уже написали (без правки их кода)
 Object.assign(globalThis, {
   ADMIN_ID,
   GITHUB_OWNER,
@@ -229,11 +221,10 @@ Object.assign(globalThis, {
 });
 
 // -----------------------------
-// 📦 Автоподключение команд
+// 📦 Загрузка команд
 // -----------------------------
-const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
-
 const commands = new Map();
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
 for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
@@ -250,114 +241,11 @@ for (const file of commandFiles) {
   }
 }
 
-// 📥 Универсальный обработчик команд
-bot.on('message', async (msg) => {
-  const msgText = (msg.text || '').trim().toLowerCase();
-  const chatId = msg.chat.id;
-  const uid = String(msg.from.id);
-
-  if (commands.has(msgText)) {
-    try {
-      await commands.get(msgText).execute(bot, msg);
-    } catch (err) {
-      console.error(`❌ Command ${msgText} failed:`, err);
-      await bot.sendMessage(chatId, '❌ Ошибка при выполнении команды.');
-    }
-    return;
-  }
-
-  // остальные force-reply и /start остаются как есть
-});
-
-      console.log(`✅ Loaded command: ${command.name} (${file})`);
-    })
-    .catch(err => console.error(`❌ Failed to load ${file}:`, err));
-}
-
 // -----------------------------
-// 🔤 Регулярка для /broadcast type text
+// 🔤 Broadcast Regex
 // -----------------------------
-import { setupBroadcastRegex } from './commands/broadcast_type.js';
 setupBroadcastRegex(bot, [Number(ADMIN_ID)], { usersPath });
 
 // -----------------------------
-// ✏️ Force-reply handlers
+// ✏️ Обработчик сообщений
 // -----------------------------
-bot.on('message', async (msg) => {
-  const text   = msg.text || '';
-  const chatId = msg.chat.id;
-  const uid    = String(msg.from.id);
-
-  // Pending: broadcast text
-  if (
-    broadcastPending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Write broadcast text')
-  ) {
-    broadcastPending.delete(uid);
-    await broadcastAll(bot, text);
-    await bot.sendMessage(uid, '✅ Broadcast sent.');
-    return sendReplyMenu(bot, chatId, uid);
-  }
-
-  // Pending: disable map confirm
-  if (
-    disablePending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Confirm disabling map')
-  ) {
-    disablePending.delete(uid);
-    const disableMsg = '🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.';
-    try {
-      await updateMapStatus({
-        enabled: false,
-        message: disableMsg,
-        theme:   'auto',
-        disableUntil: null
-      });
-      await broadcastAll(bot, disableMsg);
-      await bot.sendMessage(chatId, '✅ Map disabled and everyone notified.');
-    } catch (err) {
-      console.error('🛑 Disable error:', err);
-      await bot.sendMessage(chatId, '❌ Failed to disable map.');
-    }
-    return sendReplyMenu(bot, chatId, uid);
-  }
-
-  // Регистрация при первом заходе
-  if (text === '/start') {
-    registerUser(uid);
-    return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
-  }
-});
-
-// -----------------------------
-// 🛑 Graceful shutdown
-// -----------------------------
-async function cleanUp() {
-  console.log('🛑 Received shutdown signal, stopping bot…');
-  try {
-    await bot.stopPolling();
-    console.log('✅ Polling stopped, exiting process.');
-  } catch (err) {
-    console.error('❌ Error during stopPolling:', err);
-  }
-  process.exit(0);
-}
-process.on('SIGINT', cleanUp);
-process.on('SIGTERM', cleanUp);
-
-// -----------------------------
-// 🐶 Watchdog
-// -----------------------------
-setInterval(async () => {
-  try {
-    // node-telegram-bot-api может не иметь isPolling() как метода во всех версиях — делаем проверку безопасной
-    const isPolling = typeof bot.isPolling === 'function' ? bot.isPolling() : true;
-    if (!isPolling) {
-      console.warn('⚠️ Polling stopped unexpectedly, restarting…');
-      await bot.startPolling();
-      console.log('🔄 Polling restarted');
-    }
-  } catch (err) {
-    console.error('❌ Failed to restart polling:', err);
-  }
-}, 30_000);
