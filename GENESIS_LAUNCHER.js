@@ -269,7 +269,6 @@ bot.on('message', async (msg) => {
   // остальные force-reply и /start остаются как есть
 });
 
-      });
       console.log(`✅ Loaded command: ${command.name} (${file})`);
     })
     .catch(err => console.error(`❌ Failed to load ${file}:`, err));
