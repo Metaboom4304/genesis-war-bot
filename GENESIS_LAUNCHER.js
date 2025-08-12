@@ -233,21 +233,42 @@ Object.assign(globalThis, {
 // -----------------------------
 const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
+const commands = new Map();
+
 for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
-  import(filepath)
-    .then(({ default: command }) => {
-      if (!command?.name || typeof command.execute !== 'function') {
-        console.warn(`⚠️ Skip ${file}: invalid command shape`);
-        return;
-      }
-      // Один обработчик на команду: реагируем на "/name" и на текст кнопки "name"
-      bot.on('message', msg => {
-        const msgText = (msg.text || '').trim();
-        if (msgText === `/${command.name}` || msgText === command.name) {
-          Promise.resolve(command.execute(bot, msg))
-            .catch(err => console.error(`❌ Command ${command.name} failed:`, err));
-        }
+  try {
+    const { default: command } = await import(filepath);
+    if (!command?.name || typeof command.execute !== 'function') {
+      console.warn(`⚠️ Skip ${file}: invalid command shape`);
+      continue;
+    }
+    commands.set(command.name.toLowerCase(), command);
+    console.log(`✅ Loaded command: ${command.name} (${file})`);
+  } catch (err) {
+    console.error(`❌ Failed to load ${file}:`, err);
+  }
+}
+
+// 📥 Универсальный обработчик команд
+bot.on('message', async (msg) => {
+  const msgText = (msg.text || '').trim().toLowerCase();
+  const chatId = msg.chat.id;
+  const uid = String(msg.from.id);
+
+  if (commands.has(msgText)) {
+    try {
+      await commands.get(msgText).execute(bot, msg);
+    } catch (err) {
+      console.error(`❌ Command ${msgText} failed:`, err);
+      await bot.sendMessage(chatId, '❌ Ошибка при выполнении команды.');
+    }
+    return;
+  }
+
+  // остальные force-reply и /start остаются как есть
+});
+
       });
       console.log(`✅ Loaded command: ${command.name} (${file})`);
     })
