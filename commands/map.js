@@ -1,29 +1,36 @@
-const axios = require('axios');
+export default {
+  name: 'map',
+  async execute(bot, msg) {
+    const chatId = msg.chat.id;
+    const uid = String(msg.from.id);
+    const username = msg.from?.username;
 
-module.exports = {
-  command: 'map',
-  handler: async (ctx) => {
     try {
-      const response = await axios.get('https://genesis-data.onrender.com/map-status.json');
-      const status = response.data;
+      const { status } = await fetchMapStatus();
 
-      if (!status.enabled) {
-        return ctx.reply('❌ Карта временно недоступна.');
+      if (status?.disableUntil) {
+        const until = new Date(status.disableUntil);
+        if (!Number.isNaN(until.getTime()) && until > new Date()) {
+          await bot.sendMessage(chatId, `🛑 Карта временно отключена до ${until.toLocaleString('ru-RU')}.`);
+          return sendReplyMenu(bot, chatId, uid);
+        }
       }
 
-      await ctx.reply(status.message || '🗺 Карта доступна!', {
-        reply_markup: {
-          inline_keyboard: [[
-            {
-              text: 'Открыть карту',
-              web_app: { url: 'https://genesis-data.onrender.com' }
-            }
-          ]]
-        }
+      if (!status?.enabled) {
+        await bot.sendMessage(chatId, '🛑 Карта сейчас отключена.');
+        return sendReplyMenu(bot, chatId, uid);
+      }
+
+      const messageToSend = status.message || '🗺 Карта доступна, но сообщение не задано.';
+      await bot.sendMessage(chatId, messageToSend, {
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true
       });
+
     } catch (err) {
-      console.error('❌ Ошибка загрузки карты:', err.message);
-      return ctx.reply('❌ Failed to fetch map.');
+      await bot.sendMessage(chatId, '❌ Ошибка при получении карты.');
     }
+
+    sendReplyMenu(bot, chatId, uid);
   }
-};
+}
