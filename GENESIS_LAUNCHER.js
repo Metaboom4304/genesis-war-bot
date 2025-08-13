@@ -22,7 +22,7 @@ for (const key of requiredEnv) {
 }
 
 // -----------------------------
-// 📑 Константы
+// 📑 Константы и пути
 // -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const ADMIN_ID      = String(process.env.ADMIN_ID);
@@ -32,9 +32,6 @@ const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 const PORT          = process.env.PORT || 3000;
 
-// -----------------------------
-// 🗂️ Пути
-// -----------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const memoryPath = path.join(__dirname, 'memory');
@@ -262,45 +259,44 @@ for (const file of commandFiles) {
 }
 
 // -----------------------------
-// 🔤 Загрузка алиасов
+// Алиасы и функция нормализации
 // -----------------------------
 let aliases = {};
 try {
   aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));
 } catch {
-  console.warn('⚠️ Файл aliases.json не найден или пустой — команды будут обрабатываться только по имени');
+  console.warn('⚠️ Файл aliases.json не найден или пустой — работаем только по именам команд');
 }
 
-// -----------------------------
-// 🧠 Функция нормализации команды
-// -----------------------------
 function resolveCommandKey(input) {
   if (!input) return '';
-  
   const cleaned = input.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
-  
-  // 1️⃣ Ищем в aliases.json
+
+  // 1. Поиск в aliases.json
   for (const [key, variants] of Object.entries(aliases)) {
     if (cleaned === key || variants.includes(cleaned)) return key;
   }
-  // 2️⃣ Ищем среди загруженных команд
+
+  // 2. Точное совпадение с загруженными командами
   for (const key of commands.keys()) {
     if (cleaned === key) return key;
   }
-  // 3️⃣ Частичное совпадение
+
+  // 3. Частичное совпадение
   for (const key of commands.keys()) {
     if (cleaned.startsWith(key)) return key;
   }
+
   return cleaned;
 }
 
 // -----------------------------
-// 🔤 Broadcast Regex
+// Broadcast Regex
 // -----------------------------
 setupBroadcastRegex(bot, [Number(ADMIN_ID)], { usersPath });
 
 // -----------------------------
-// ✏️ Обработчик сообщений
+// Обработчик сообщений
 // -----------------------------
 bot.on('message', async (msg) => {
   const text   = (msg.text || '').trim();
@@ -308,6 +304,11 @@ bot.on('message', async (msg) => {
   const uid    = String(msg.from.id);
 
   const cmdKey = resolveCommandKey(text);
+
+  // Логирование для отладки
+  console.log('RAW TEXT:', text);
+  console.log('CMD KEY:', cmdKey);
+  console.log('ALL COMMANDS:', [...commands.keys()]);
 
   // Broadcast reply
   if (
@@ -349,7 +350,7 @@ bot.on('message', async (msg) => {
     return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
   }
 
-  // Универсальный обработчик команд
+  // Универсальный обработчик
   if (commands.has(cmdKey)) {
     try {
       await commands.get(cmdKey).execute(bot, msg);
@@ -362,7 +363,7 @@ bot.on('message', async (msg) => {
 });
 
 // -----------------------------
-// 🛑 Graceful shutdown
+// Graceful shutdown
 // -----------------------------
 async function cleanUp() {
   console.log('🛑 Received shutdown signal, stopping bot…');
@@ -382,7 +383,7 @@ process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
 
 // -----------------------------
-// 🐶 Watchdog
+// Watchdog
 // -----------------------------
 setInterval(async () => {
   try {
