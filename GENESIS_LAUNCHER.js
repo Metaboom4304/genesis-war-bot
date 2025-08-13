@@ -31,7 +31,6 @@ const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 const PORT          = process.env.PORT || 3000;
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ADMIN_ID;
 
 // -----------------------------
 // 🗂️ Пути
@@ -44,6 +43,7 @@ const lockPath   = path.join(memoryPath, 'botEnabled.lock');
 const logsPath   = path.join(__dirname, 'logs.txt');
 const commandsPath = path.join(__dirname, 'commands');
 const pidPath    = path.join(memoryPath, 'genesis.lock');
+const aliasesPath = path.join(__dirname, 'aliases.json');
 
 // -----------------------------
 // 🧷 Защита от двойного запуска
@@ -56,7 +56,7 @@ if (fs.existsSync(pidPath)) {
     process.exit(1);
   } catch {
     fs.unlinkSync(pidPath);
-    console.warn('⚠️ Сталый PID найден, но процесс неактивен — перезапуск');
+    console.warn('⚠️ Старый PID найден, процесс не активен — перезапуск');
   }
 }
 fs.writeFileSync(pidPath, String(process.pid));
@@ -250,7 +250,7 @@ for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
   try {
     const { default: command } = await import(filepath);
-        if (!command?.name || typeof command.execute !== 'function') {
+    if (!command?.name || typeof command.execute !== 'function') {
       console.warn(`⚠️ Skip ${file}: invalid command shape`);
       continue;
     }
@@ -259,6 +259,24 @@ for (const file of commandFiles) {
   } catch (err) {
     console.error(`❌ Failed to load ${file}:`, err);
   }
+}
+
+// -----------------------------
+// 🔤 Загрузка алиасов и функция нормализации
+// -----------------------------
+let aliases = {};
+try {
+  aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));
+} catch {
+  console.warn('⚠️ Файл aliases.json не найден или повреждён — команды будут обрабатываться только по имени');
+}
+
+function resolveCommandKey(input) {
+  const cleaned = input.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
+  for (const [key, variants] of Object.entries(aliases)) {
+    if (cleaned === key || variants.includes(cleaned)) return key;
+  }
+  return cleaned;
 }
 
 // -----------------------------
@@ -273,6 +291,8 @@ bot.on('message', async (msg) => {
   const text   = (msg.text || '').trim();
   const chatId = msg.chat.id;
   const uid    = String(msg.from.id);
+
+  const cmdKey = resolveCommandKey(text);
 
   // Broadcast reply
   if (
@@ -309,13 +329,12 @@ bot.on('message', async (msg) => {
   }
 
   // Команда /start
-  if (text === '/start') {
+  if (cmdKey === 'start') {
     registerUser(uid);
     return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
   }
 
   // Универсальный обработчик команд
-  const cmdKey = text.toLowerCase();
   if (commands.has(cmdKey)) {
     try {
       await commands.get(cmdKey).execute(bot, msg);
@@ -362,3 +381,4 @@ setInterval(async () => {
     console.error('❌ Failed to restart polling:', err);
   }
 }, 30_000);
+
