@@ -262,19 +262,34 @@ for (const file of commandFiles) {
 }
 
 // -----------------------------
-// 🔤 Загрузка алиасов и функция нормализации
+// 🔤 Загрузка алиасов
 // -----------------------------
 let aliases = {};
 try {
   aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));
 } catch {
-  console.warn('⚠️ Файл aliases.json не найден или повреждён — команды будут обрабатываться только по имени');
+  console.warn('⚠️ Файл aliases.json не найден или пустой — команды будут обрабатываться только по имени');
 }
 
+// -----------------------------
+// 🧠 Функция нормализации команды
+// -----------------------------
 function resolveCommandKey(input) {
+  if (!input) return '';
+  
   const cleaned = input.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
+  
+  // 1️⃣ Ищем в aliases.json
   for (const [key, variants] of Object.entries(aliases)) {
     if (cleaned === key || variants.includes(cleaned)) return key;
+  }
+  // 2️⃣ Ищем среди загруженных команд
+  for (const key of commands.keys()) {
+    if (cleaned === key) return key;
+  }
+  // 3️⃣ Частичное совпадение
+  for (const key of commands.keys()) {
+    if (cleaned.startsWith(key)) return key;
   }
   return cleaned;
 }
@@ -381,4 +396,3 @@ setInterval(async () => {
     console.error('❌ Failed to restart polling:', err);
   }
 }, 30_000);
-
