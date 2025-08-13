@@ -238,7 +238,7 @@ Object.assign(globalThis, {
 });
 
 // -----------------------------
-// 📦 Загрузка команд
+// 📦 Загрузка команд с нормализацией имён
 // -----------------------------
 const commands = new Map();
 const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
@@ -251,8 +251,10 @@ for (const file of commandFiles) {
       console.warn(`⚠️ Skip ${file}: invalid command shape`);
       continue;
     }
-    commands.set(command.name.toLowerCase(), command);
-    console.log(`✅ Loaded command: ${command.name} (${file})`);
+    // Нормализуем имя команды при загрузке
+    const normName = command.name.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
+    commands.set(normName, command);
+    console.log(`✅ Loaded command: ${command.name} (${file}) => key: ${normName}`);
   } catch (err) {
     console.error(`❌ Failed to load ${file}:`, err);
   }
@@ -277,10 +279,8 @@ function resolveCommandKey(input) {
     if (cleaned === key || variants.includes(cleaned)) return key;
   }
 
-  // 2. Точное совпадение с загруженными командами
-  for (const key of commands.keys()) {
-    if (cleaned === key) return key;
-  }
+  // 2. Точное совпадение
+  if (commands.has(cleaned)) return cleaned;
 
   // 3. Частичное совпадение
   for (const key of commands.keys()) {
@@ -397,3 +397,4 @@ setInterval(async () => {
     console.error('❌ Failed to restart polling:', err);
   }
 }, 30_000);
+
