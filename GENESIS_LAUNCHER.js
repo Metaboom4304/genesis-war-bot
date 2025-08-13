@@ -238,9 +238,13 @@ Object.assign(globalThis, {
 });
 
 // -----------------------------
-// 📦 Загрузка команд с нормализацией имён
+// 📦 Загрузка команд с логированием
 // -----------------------------
 const commands = new Map();
+
+// Показать все файлы, которые реально видит лаунчер
+console.log('📂 Найдено в папке commands:', fs.readdirSync(commandsPath));
+
 const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
 for (const file of commandFiles) {
@@ -251,7 +255,6 @@ for (const file of commandFiles) {
       console.warn(`⚠️ Skip ${file}: invalid command shape`);
       continue;
     }
-    // Нормализуем имя команды при загрузке
     const normName = command.name.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
     commands.set(normName, command);
     console.log(`✅ Loaded command: ${command.name} (${file}) => key: ${normName}`);
@@ -261,32 +264,29 @@ for (const file of commandFiles) {
 }
 
 // -----------------------------
-// Алиасы и функция нормализации
+// Алиасы и нормализация команд
 // -----------------------------
 let aliases = {};
 try {
   aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));
 } catch {
-  console.warn('⚠️ Файл aliases.json не найден или пустой — работаем только по именам команд');
+  console.warn('⚠️ Файл aliases.json не найден или пустой');
 }
 
 function resolveCommandKey(input) {
   if (!input) return '';
   const cleaned = input.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
 
-  // 1. Поиск в aliases.json
+  // 1. Алиасы
   for (const [key, variants] of Object.entries(aliases)) {
     if (cleaned === key || variants.includes(cleaned)) return key;
   }
-
-  // 2. Точное совпадение
+  // 2. Прямое совпадение
   if (commands.has(cleaned)) return cleaned;
-
-  // 3. Частичное совпадение
+  // 3. Частичное
   for (const key of commands.keys()) {
     if (cleaned.startsWith(key)) return key;
   }
-
   return cleaned;
 }
 
@@ -305,12 +305,12 @@ bot.on('message', async (msg) => {
 
   const cmdKey = resolveCommandKey(text);
 
-  // Логирование для отладки
+  // Отладочный вывод
   console.log('RAW TEXT:', text);
   console.log('CMD KEY:', cmdKey);
-  console.log('ALL COMMANDS:', [...commands.keys()]);
+  console.log('ALL COMMANDS:', Array.from(commands.keys()));
 
-  // Broadcast reply
+  // Пример: broadcast reply...
   if (
     broadcastPending.has(uid) &&
     msg.reply_to_message?.text?.includes('Write broadcast text')
@@ -321,7 +321,7 @@ bot.on('message', async (msg) => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // Disable map confirm
+  // Пример: disable map confirm...
   if (
     disablePending.has(uid) &&
     msg.reply_to_message?.text?.includes('Confirm disabling map')
@@ -344,13 +344,13 @@ bot.on('message', async (msg) => {
     return sendReplyMenu(bot, chatId, uid);
   }
 
-  // Команда /start
+  // /start
   if (cmdKey === 'start') {
     registerUser(uid);
     return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
   }
 
-  // Универсальный обработчик
+  // Универсальная проверка
   if (commands.has(cmdKey)) {
     try {
       await commands.get(cmdKey).execute(bot, msg);
@@ -397,4 +397,3 @@ setInterval(async () => {
     console.error('❌ Failed to restart polling:', err);
   }
 }, 30_000);
-
