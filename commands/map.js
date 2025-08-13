@@ -3,7 +3,7 @@ import { sendReplyMenu } from '../utils/menu.js';
 import { registerUser } from '../services/supabaseUser.js';
 
 export default {
-  name: 'map',
+  name: 'mappage',
   async execute(bot, msg) {
     const chatId = msg.chat.id;
     const uid = String(msg.from?.id);
