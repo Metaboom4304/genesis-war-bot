@@ -249,8 +249,8 @@ const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))
 for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
   try {
-        const { default: command } = await import(filepath);
-    if (!command?.name || typeof command.execute !== 'function') {
+    const { default: command } = await import(filepath);
+        if (!command?.name || typeof command.execute !== 'function') {
       console.warn(`⚠️ Skip ${file}: invalid command shape`);
       continue;
     }
