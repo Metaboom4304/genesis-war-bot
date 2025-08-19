@@ -6,7 +6,9 @@
   "main": "GENESIS_LAUNCHER.js",
   "scripts": {
     "start": "node GENESIS_LAUNCHER.js",
-    "dev": "nodemon GENESIS_LAUNCHER.js"
+    "start:api": "node index.js",
+    "dev": "nodemon GENESIS_LAUNCHER.js",
+    "dev:api": "nodemon index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
