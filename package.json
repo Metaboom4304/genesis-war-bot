@@ -2,8 +2,8 @@
   "name": "genesis-war-bot",
   "version": "1.0.0",
   "description": "Telegram bot for GENESIS WAR",
-  "type": "module", // Оставляем, так как GENESIS_LAUNCHER.js использует import/export
-  "main": "GENESIS_LAUNCHER.js", // Оставляем как есть
+  "type": "module",
+  "main": "GENESIS_LAUNCHER.js",
   "scripts": {
     "start": "node GENESIS_LAUNCHER.js",
     "dev": "nodemon GENESIS_LAUNCHER.js"
@@ -14,11 +14,9 @@
     "node-telegram-bot-api": "^0.61.0",
     "@octokit/rest": "^20.0.0",
     "json5": "^2.2.3",
-    // --- Добавленные зависимости ---
     "pg": "^8.11.0",
     "cors": "^2.8.5",
     "node-fetch": "^2.6.11"
-    // -------------------------------
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
