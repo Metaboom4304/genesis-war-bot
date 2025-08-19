@@ -8,6 +8,9 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { Octokit } from '@octokit/rest';
 import { fileURLToPath, pathToFileURL } from 'url';
+// Импорт и запуск веб-API
+import { startAPIServer } from './index.js';
+startAPIServer().catch(console.error);
 
 // Если у тебя есть регекс-обработчик рассылки — подключим при наличии
 let setupBroadcastRegex = null;
