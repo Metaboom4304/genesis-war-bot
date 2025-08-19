@@ -41,7 +41,8 @@ const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-const PORT          = process.env.PORT || 10000;
+// ИСПРАВЛЕНО: Используем BOT_PORT для Express бота, чтобы не конфликтовать с PORT, который может использовать API
+const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000;
 
 const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = path.dirname(__filename);
@@ -234,7 +235,8 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
 // -----------------------------
 const app = express();
 app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
-app.listen(PORT, () => console.log(`🌍 Express listening on port ${PORT}`));
+// ИСПРАВЛЕНО: Используем BOT_PORT и явно указываем хост
+app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express listening on port ${BOT_PORT}`));
 setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 
 // -----------------------------
