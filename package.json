@@ -2,10 +2,10 @@
   "name": "genesis-war-bot",
   "version": "1.0.0",
   "description": "Telegram bot for GENESIS WAR",
-  "main": "index.js",
+  "main": "GENESIS_LAUNCHER.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node GENESIS_LAUNCHER.js",
+    "dev": "nodemon GENESIS_LAUNCHER.js"
   },
   "dependencies": {
     "express": "^4.18.2",
