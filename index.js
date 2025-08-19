@@ -1,12 +1,14 @@
 // index.js - Веб-API для GENESIS WAR MAP
+// Репозиторий: genesis-war-bot
 import 'dotenv/config';
 import express from 'express';
 import { Pool } from 'pg';
 import cors from 'cors';
-import fetch from 'node-fetch'; // Убедись, что node-fetch установлен (версия 2.x для ESM)
+import fetch from 'node-fetch';
 
 const app = express();
-const PORT = process.env.WEB_API_PORT || 3001; // Используем другой порт
+// ВАЖНО: Используем process.env.PORT, который предоставляет Render
+const PORT = process.env.PORT || 3001;
 
 // Конфигурация Neon PostgreSQL
 const pool = new Pool({
@@ -16,23 +18,38 @@ const pool = new Pool({
   }
 });
 
-// Настройки CORS
-const corsOptions = {
-  origin: [
-    'https://genesis-data.onrender.com', // URL твоей карты
+// --- УЛУЧШЕННЫЙ CORS Middleware ---
+// Этот middleware должен идти ПЕРЕД app.use(express.json())
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://genesis-data.onrender.com',
     'https://web.telegram.org',
-    'http://localhost:3000',
-    // Добавь сюда любой другой домен, с которого будет происходить запрос
-  ],
-  optionsSuccessStatus: 200
-};
+    'http://localhost:3000'
+  ];
 
-app.use(cors(corsOptions));
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+// --- КОНЕЦ CORS ---
+
+// Middleware для парсинга JSON
 app.use(express.json({ limit: '10mb' }));
 
 // --- Мидлвар для логирования запросов ---
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} from ${req.ip}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} from ${req.ip} (Origin: ${req.headers.origin || 'N/A'})`);
   next();
 });
 // ---------------------------------------
@@ -42,7 +59,6 @@ app.use((req, res, next) => {
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
-    // Проверяем подключение к БД
     await pool.query('SELECT NOW()');
     res.status(200).json({ 
       status: 'OK', 
@@ -64,7 +80,6 @@ app.get('/health', async (req, res) => {
 // --- Работа с пользователями ---
 app.post('/api/users', async (req, res) => {
   try {
-    // Предполагаем, что данные приходят от Telegram WebApp или бота
     const { telegram_id, first_name, last_name, username } = req.body;
     
     if (!telegram_id) {
@@ -99,21 +114,19 @@ app.post('/api/marks', async (req, res) => {
        return res.status(400).json({ error: 'user_id, tile_id, and mark_type are required' });
     }
 
-    // Удаление предыдущей метки такого же типа для этой плитки у этого пользователя
     await pool.query(
       `DELETE FROM user_marks 
        WHERE user_id = $1 AND tile_id = $2 AND mark_type = $3`,
       [user_id, tile_id, mark_type]
     );
     
-    // Сохранение новой метки (если не сброс)
     let result;
     if (mark_type !== 'clear') {
       result = await pool.query(
         `INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
          VALUES ($1, $2, $3, $4)
          RETURNING *`,
-        [user_id, tile_id, mark_type, comment || null] // comment может быть null
+        [user_id, tile_id, mark_type, comment || null]
       );
       
       return res.status(201).json(result.rows[0]);
@@ -147,7 +160,6 @@ app.get('/api/marks/:user_id', async (req, res) => {
 });
 
 // --- Работа с кешем тайлов ---
-// Получение последнего кеша
 app.get('/api/tiles-cache', async (req, res) => {
   try {
     const result = await pool.query(
@@ -167,7 +179,6 @@ app.get('/api/tiles-cache', async (req, res) => {
   }
 });
 
-// Сохранение/обновление кеша
 app.post('/api/tiles-cache', async (req, res) => {
   try {
     const { data } = req.body;
@@ -180,7 +191,7 @@ app.post('/api/tiles-cache', async (req, res) => {
       `INSERT INTO tiles_cache (data) 
        VALUES ($1) 
        RETURNING data, last_updated`,
-      [data] // data должно быть JSONB
+      [data]
     );
     
     res.status(201).json(result.rows[0]);
@@ -196,7 +207,7 @@ app.get('/api/proxy/tile-info', async (req, res) => {
     console.log('Запрос данных с основного сервера игры...');
     const url = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
     const response = await fetch(url, {
-      timeout: 15000 // 15 секунд таймаут
+      timeout: 15000
     });
     
     if (!response.ok) {
@@ -208,7 +219,6 @@ app.get('/api/proxy/tile-info', async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Proxy error:', error);
-    // Возвращаем более детализированную ошибку
     res.status(502).json({ 
       error: 'Proxy error', 
       details: error.message,
@@ -233,16 +243,14 @@ app.use((error, req, res, next) => {
   });
 });
 
-// --- Экспорт приложения и функции запуска для интеграции ---
-// Это позволяет запустить API сервер отдельно или интегрировать его в другой файл (например, GENESIS_LAUNCHER.js)
+// Экспорт для возможной интеграции или тестирования
 let server;
 
 function startAPIServer() {
     return new Promise((resolve) => {
-        server = app.listen(PORT, () => {
+        server = app.listen(PORT, '0.0.0.0', () => { // Явно указываем хост
           console.log(`🚀 Веб-API для карты запущен на порту ${PORT}`);
           console.log(`📊 База данных: ${process.env.DATABASE_URL ? 'Настроена' : 'Не настроена'}`);
-          console.log(`🌐 CORS origins: ${corsOptions.origin.join(', ')}`);
           resolve(server);
         });
     });
@@ -261,5 +269,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     startAPIServer().catch(console.error);
 }
 
-// Экспортируем для возможной интеграции
 export { app, startAPIServer, stopAPIServer, pool };
