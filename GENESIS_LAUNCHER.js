@@ -198,20 +198,27 @@ async function broadcastAll(bot, message) {
 }
 
 // -----------------------------
-// Reply-меню
+// Reply-меню (ИЗМЕНЕНО)
 // -----------------------------
-function sendReplyMenu(bot, chatId, uid, text = '📋 Menu:') {
+function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
   const isAdmin = String(uid) === ADMIN_ID;
+  
+  // --- Измененные кнопки пользователя ---
   const baseButtons = [
-    ['🤖 Info', '🛣 Roadmap'],
-    ['🌐 Links', '🗺 Map'],
-    ['❓ Help']
+    ['🤖 Инфо', '🛣 Дорожная карта'],
+    ['🌐 Ссылки', '❓ Помощь'],
+    ['🗺 Карта'] // Карта пятой по счету (в этом массиве - третья, но будет первой в новой строке)
   ];
+  // ------------------------------------
+
+  // --- Измененные кнопки админа ---
   const adminButtons = [
-    ['📢 Broadcast', '📃 Logs'],
-    ['⚠️ Disable map', '🔄 Enable map'],
-    ['👥 Add admin', '📑 Admins']
+    ['📢 Рассылка', '📃 Логи'],
+    ['⚠️ Отключить карту', '🔄 Включить карту'],
+    ['👥 Добавить админа', '👥 Список пользователей'] // Заменено Admins на Список пользователей
   ];
+  // -------------------------------
+
   const keyboard = isAdmin ? [...baseButtons, ...adminButtons] : baseButtons;
 
   return bot.sendMessage(chatId, text, {
@@ -358,21 +365,21 @@ bot.on('message', async (msg) => {
   // Обработка ожидаемых ответов рассылки
   if (
     broadcastPending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Write broadcast text')
+    msg.reply_to_message?.text?.includes('Write broadcast text') // Можно тоже перевести
   ) {
     broadcastPending.delete(uid);
     await broadcastAll(bot, text);
-    await bot.sendMessage(uid, '✅ Broadcast sent.');
+    await bot.sendMessage(uid, '✅ Рассылка отправлена.');
     return sendReplyMenu(bot, chatId, uid);
   }
 
   // Подтверждение отключения карты
   if (
     disablePending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Confirm disabling map')
+    msg.reply_to_message?.text?.includes('Confirm disabling map') // Можно тоже перевести
   ) {
     disablePending.delete(uid);
-    const disableMsg = '🔒 Genesis temporarily disabled.\nWe’ll be back soon with something big.';
+    const disableMsg = '🔒 Genesis временно отключен.\nМы скоро вернемся с чем-то большим.';
     try {
       await updateMapStatus({
         enabled: false,
@@ -381,10 +388,10 @@ bot.on('message', async (msg) => {
         disableUntil: null
       });
       await broadcastAll(bot, disableMsg);
-      await bot.sendMessage(chatId, '✅ Map disabled and everyone notified.');
+      await bot.sendMessage(chatId, '✅ Карта отключена и все уведомлены.');
     } catch (err) {
-      console.error('🛑 Disable error:', err);
-      await bot.sendMessage(chatId, '❌ Failed to disable map.');
+      console.error('🛑 Ошибка отключения:', err);
+      await bot.sendMessage(chatId, '❌ Не удалось отключить карту.');
     }
     return sendReplyMenu(bot, chatId, uid);
   }
@@ -392,8 +399,34 @@ bot.on('message', async (msg) => {
   // /start
   if (cmdKey === 'start' || text === '/start') {
     registerUser(uid);
-    return sendReplyMenu(bot, chatId, uid, '🚀 Welcome! You\'re registered.');
+    return sendReplyMenu(bot, chatId, uid, '🚀 Добро пожаловать! Вы зарегистрированы.');
   }
+
+  // --- Обработка новой кнопки "Список пользователей" ---
+  if (text === '👥 Список пользователей' && String(uid) === ADMIN_ID) {
+    const users = readUsers();
+    const userList = Object.keys(users);
+    if (userList.length === 0) {
+        return bot.sendMessage(chatId, '📭 Список пользователей пуст.');
+    }
+    // Формируем сообщение со списком
+    let message = `👥 Зарегистрированные пользователи (${userList.length}):\n`;
+    // Ограничим длину сообщения, если пользователей много
+    const maxUsersToShow = 50; // Можно настроить
+    const usersToShow = userList.slice(0, maxUsersToShow);
+    message += usersToShow.map(id => `ID: ${id}`).join('\n');
+    if (userList.length > maxUsersToShow) {
+        message += `\n... и ещё ${userList.length - maxUsersToShow} пользователей.`;
+    }
+    return bot.sendMessage(chatId, message, {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '🔄 Обновить список', callback_data: 'refresh_users' }]
+            ]
+        }
+    });
+  }
+  // -----------------------------------------------------
 
   // Универсальный запуск команды
   if (commands.has(cmdKey)) {
@@ -410,6 +443,46 @@ bot.on('message', async (msg) => {
   // await bot.sendMessage(chatId, 'ℹ️ Команда не распознана. Нажмите кнопку в меню ниже.');
   // return sendReplyMenu(bot, chatId, uid);
 });
+
+// --- Обработка inline-кнопок (например, обновление списка пользователей) ---
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const uid = String(query.from.id);
+    const data = query.data;
+
+    if (data === 'refresh_users' && uid === ADMIN_ID) {
+        // Редактируем сообщение с новым списком
+        const users = readUsers();
+        const userList = Object.keys(users);
+        let message = `👥 Зарегистрированные пользователи (${userList.length}):\n`;
+        const maxUsersToShow = 50;
+        const usersToShow = userList.slice(0, maxUsersToShow);
+        message += usersToShow.map(id => `ID: ${id}`).join('\n');
+        if (userList.length > maxUsersToShow) {
+            message += `\n... и ещё ${userList.length - maxUsersToShow} пользователей.`;
+        }
+        try {
+            await bot.editMessageText(message, {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Обновить список', callback_data: 'refresh_users' }]
+                    ]
+                }
+            });
+        } catch (err) {
+            // Если сообщение не изменилось, Telegram может вернуть ошибку
+            if (err.response?.body?.error_code !== 400) { // Игнорируем "Bad Request: message is not modified"
+                 console.error('Ошибка редактирования сообщения:', err);
+            }
+        }
+        // Отвечаем на callback, чтобы убрать "крутящийся" индикатор
+        await bot.answerCallbackQuery(query.id);
+    }
+    // Другие обработчики callback_data можно добавить здесь
+});
+// -------------------------------------------------------------------------
 
 // -----------------------------
 // Graceful shutdown
