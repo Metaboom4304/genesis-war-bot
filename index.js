@@ -44,8 +44,8 @@ app.use((req, res, next) => {
 });
 // --- КОНЕЦ CORS ---
 
-// Middleware для парсинга JSON
-app.use(express.json({ limit: '70mb' }));
+// Middleware для парсинга JSON с увеличенным лимитом
+app.use(express.json({ limit: '50mb' })); // Увеличенный лимит
 
 // --- Мидлвар для логирования запросов ---
 app.use((req, res, next) => {
@@ -78,7 +78,7 @@ app.get('/health', async (req, res) => {
 });
 
 // --- Работа с пользователями ---
-app.post('/api/users', async (req, res) => {
+app.post('/api/users/register', async (req, res) => {
   try {
     const { telegram_id, first_name, last_name, username } = req.body;
     
@@ -207,7 +207,7 @@ app.get('/api/proxy/tile-info', async (req, res) => {
     console.log('Запрос данных с основного сервера игры...');
     const url = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
     const response = await fetch(url, {
-      timeout: 15000
+      timeout: 30000 // Увеличенный таймаут до 30 секунд
     });
     
     if (!response.ok) {
@@ -248,7 +248,7 @@ let server;
 
 function startAPIServer() {
     return new Promise((resolve) => {
-        server = app.listen(PORT, '0.0.0.0', () => { // Явно указываем хост
+        server = app.listen(PORT, '0.0.0.0', () => {
           console.log(`🚀 Веб-API для карты запущен на порту ${PORT}`);
           console.log(`📊 База данных: ${process.env.DATABASE_URL ? 'Настроена' : 'Не настроена'}`);
           resolve(server);
