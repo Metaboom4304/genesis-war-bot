@@ -1,22 +1,41 @@
+// commands/logs_button.js
 export default {
-  name: '📃 Logs',
-  async execute(bot, msg) {
-    const uid = String(msg.from.id);
+  name: '📝 Логи',
+  description: 'Получить логи работы бота',
+  execute: async (bot, msg) => {
     const chatId = msg.chat.id;
-
-    if (uid !== ADMIN_ID) return;
-
-    try {
-      const logs = fs.readFileSync(logsPath, 'utf8');
-      const chunkSize = 3500;
-
-      for (let i = 0; i < logs.length; i += chunkSize) {
-        await bot.sendMessage(chatId, `📃 Logs (part ${Math.floor(i/chunkSize)+1}):\n` + logs.slice(i, i + chunkSize));
-      }
-    } catch {
-      await bot.sendMessage(chatId, '📃 Logs not available.');
+    const userId = String(msg.from.id);
+    
+    // Проверяем, является ли пользователь админом
+    if (userId !== process.env.ADMIN_ID) {
+      return bot.sendMessage(chatId, '❌ У вас нет прав для просмотра логов.');
     }
-
-    sendReplyMenu(bot, chatId, uid);
+    
+    // Читаем логи из файла
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      const logsPath = path.join(process.cwd(), 'logs.txt');
+      if (fs.existsSync(logsPath)) {
+        let logs = fs.readFileSync(logsPath, 'utf8');
+        
+        // Ограничиваем длину сообщения
+        if (logs.length > 4000) {
+          logs = logs.substring(logs.length - 4000);
+          logs = '...\n' + logs;
+        }
+        
+        // Отправляем логи пользователю
+        await bot.sendMessage(chatId, `<pre>${logs}</pre>`, {
+          parse_mode: 'HTML'
+        });
+      } else {
+        await bot.sendMessage(chatId, '📭 Файл логов не найден.');
+      }
+    } catch (error) {
+      console.error('Ошибка при чтении логов:', error);
+      await bot.sendMessage(chatId, `❌ Ошибка при чтении логов: ${error.message}`);
+    }
   }
-}
+};
