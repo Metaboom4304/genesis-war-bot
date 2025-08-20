@@ -45,7 +45,7 @@ app.use((req, res, next) => {
 // --- КОНЕЦ CORS ---
 
 // Middleware для парсинга JSON
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '70mb' }));
 
 // --- Мидлвар для логирования запросов ---
 app.use((req, res, next) => {
