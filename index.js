@@ -11,7 +11,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- УЛУЧШЕННЫЙ CORS Middleware ---
-// Этот middleware должен идти ПЕРЕД app.use(express.json())
 const corsOptions = {
   origin: [
     'https://genesis-data.onrender.com',
@@ -26,8 +25,7 @@ app.use(cors(corsOptions));
 // --- КОНЕЦ CORS ---
 
 // --- Middleware для парсинга JSON с увеличенным лимитом ---
-// Решает PayloadTooLargeError
-app.use(express.json({ limit: '50mb' })); // Увеличенный лимит до 50MB
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // ---------------------------------------------------------
 
@@ -77,14 +75,13 @@ app.get('/health', async (req, res) => {
 
 // --- Работа с пользователями ---
 // Эндпоинт для регистрации/обновления пользователя
-// Решает Foreign Key Constraint error
 app.post('/api/users/register', async (req, res) => {
   try {
     const { telegram_id, first_name, last_name, username } = req.body;
     
     // Проверка обязательных полей
     if (!telegram_id) {
-      return res.status(400).json({ error: 'telegram_id is required' });
+       return res.status(400).json({ error: 'telegram_id is required' });
     }
 
     // Попытка вставить пользователя или обновить информацию, если он уже существует
@@ -121,7 +118,7 @@ app.post('/api/marks', async (req, res) => {
        return res.status(400).json({ error: 'user_id, tile_id, and mark_type are required' });
     }
 
-    // --- Автоматическая регистрация пользователя, если его нет (решает Foreign Key error) ---
+    // --- Автоматическая регистрация пользователя, если его нет ---
     const userCheck = await pool.query(
       'SELECT 1 FROM users WHERE telegram_id = $1',
       [user_id]
@@ -146,8 +143,8 @@ app.post('/api/marks', async (req, res) => {
       [user_id, tile_id, mark_type]
     );
     
-    // Сохранение новой метки (если не сброс)
     let result;
+    // Сохранение новой метки (если не сброс)
     if (mark_type !== 'clear') {
       result = await pool.query(
         `INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
@@ -281,7 +278,6 @@ app.use((error, req, res, next) => {
 // ------------------------
 
 // --- Экспорт для интеграции или тестирования ---
-// Это позволяет запустить API сервер отдельно или интегрировать его в другой файл
 let server;
 
 function startAPIServer() {
