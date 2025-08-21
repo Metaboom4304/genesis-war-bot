@@ -1,7 +1,6 @@
 {
-  "enabled": true,
-  "message": "🔓 Genesis is back online!",
-  "mapUrl": "https://genesis-data.onrender.com/map?token=__TOKEN__",
+  "enabled": false,
+  "message": "🔒 Genesis временно отключен.\nМы скоро вернемся с чем-то большим.",
   "theme": "auto",
   "disableUntil": null
 }
