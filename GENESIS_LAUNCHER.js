@@ -8,6 +8,8 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { Octokit } from '@octokit/rest';
 import { fileURLToPath, pathToFileURL } from 'url';
+import cors from 'cors'; // Добавляем CORS
+
 // Импорт и запуск веб-API
 import { startAPIServer } from './index.js';
 startAPIServer().catch(console.error);
@@ -41,7 +43,6 @@ const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-// ИСПРАВЛЕНО: Используем BOT_PORT для Express бота, чтобы не конфликтовать с PORT, который может использовать API
 const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000;
 
 const __filename   = fileURLToPath(import.meta.url);
@@ -234,6 +235,32 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
 // Express keep-alive
 // -----------------------------
 const app = express();
+app.use(cors()); // Добавляем CORS middleware
+app.use(express.json()); // Для обработки JSON запросов
+
+// Добавляем эндпоинты для API
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.post('/register', (req, res) => {
+  try {
+    const { telegram_id, first_name, last_name, username, language_code } = req.body;
+    registerUser(telegram_id);
+    res.json({ status: 'success', message: 'User registered' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+app.post('/notify', (req, res) => {
+  try {
+    const { user_id, tile_id, action, comment } = req.body;
+    // Здесь можно добавить логику уведомлений
+    console.log(`Notification: User ${user_id} performed ${action} on tile ${tile_id}`);
+    res.json({ status: 'success', message: 'Notification processed' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
 // ИСПРАВЛЕНО: Используем BOT_PORT и явно указываем хост
 app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express listening on port ${BOT_PORT}`));
