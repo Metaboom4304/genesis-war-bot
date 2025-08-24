@@ -8,7 +8,7 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { Octokit } from '@octokit/rest';
 import { fileURLToPath, pathToFileURL } from 'url';
-import cors from 'cors'; // Добавляем CORS
+import cors from 'cors';
 
 // Импорт и запуск веб-API
 import { startAPIServer } from './index.js';
@@ -235,29 +235,57 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
 // Express keep-alive
 // -----------------------------
 const app = express();
-app.use(cors()); // Добавляем CORS middleware
-app.use(express.json()); // Для обработки JSON запросов
+app.use(cors());
+app.use(express.json());
 
 // Добавляем эндпоинты для API
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-app.post('/register', (req, res) => {
+app.get('/health', (_req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    service: 'genesis-war-bot',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/register', async (req, res) => {
   try {
     const { telegram_id, first_name, last_name, username, language_code } = req.body;
+    
+    // Регистрируем пользователя
     registerUser(telegram_id);
-    res.json({ status: 'success', message: 'User registered' });
+    
+    console.log(`✅ Пользователь зарегистрирован в боте: ${telegram_id}`);
+    res.status(200).json({ 
+      status: 'success', 
+      message: 'User registered in bot',
+      user_id: telegram_id
+    });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error('❌ Ошибка регистрации в боте:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message 
+    });
   }
 });
 
-app.post('/notify', (req, res) => {
+app.post('/notify', async (req, res) => {
   try {
     const { user_id, tile_id, action, comment } = req.body;
-    // Здесь можно добавить логику уведомлений
-    console.log(`Notification: User ${user_id} performed ${action} on tile ${tile_id}`);
-    res.json({ status: 'success', message: 'Notification processed' });
+    
+    // Логируем уведомление
+    console.log(`📢 Уведомление: пользователь ${user_id} выполнил ${action} на тайле ${tile_id}`);
+    
+    res.status(200).json({ 
+      status: 'success', 
+      message: 'Notification processed'
+    });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error('❌ Ошибка обработки уведомления:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message 
+    });
   }
 });
 
