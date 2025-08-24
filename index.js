@@ -1,42 +1,13 @@
-// index.js - Веб-API для GENESIS WAR MAP
-// Репозиторий: genesis-war-bot
-import 'dotenv/config';
-import express from 'express';
-import { Pool } from 'pg';
-import cors from 'cors';
-import fetch from 'node-fetch';
+const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
+const { Pool } = require('pg');
+const axios = require('axios');
+require('dotenv').config();
 
 const app = express();
-// ВАЖНО: Используем process.env.PORT, который предоставляет Render
-const PORT = process.env.PORT || 3001;
+const port = process.env.PORT || 3000;
 
-// --- УЛУЧШЕННЫЙ CORS Middleware ---
-const corsOptions = {
-  origin: [
-    'https://genesis-data.onrender.com',
-    'https://web.telegram.org',
-    'http://localhost:3000'
-  ],
-  optionsSuccessStatus: 200,
-  credentials: true
-};
-
-app.use(cors(corsOptions));
-// --- КОНЕЦ CORS ---
-
-// --- Middleware для парсинга JSON с увеличенным лимитом ---
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-// ---------------------------------------------------------
-
-// --- Middleware для логирования запросов ---
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} from ${req.ip} (Origin: ${req.headers.origin || 'N/A'})`);
-  next();
-});
-// ---------------------------------------
-
-// --- Конфигурация Neon PostgreSQL ---
+// Настройка подключения к базе данных Neon
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -44,264 +15,222 @@ const pool = new Pool({
   }
 });
 
-// Проверка соединения с БД при запуске
-pool.query('SELECT NOW()')
-  .then(() => console.log('✅ Подключение к базе данных успешно'))
-  .catch(err => console.error('❌ Ошибка подключения к базе:', err));
-// ------------------------------------
-
-// --- Эндпоинты API ---
-
-// Health check endpoint
-app.get('/health', async (req, res) => {
+// Создаем таблицы, если они не существуют
+async function initDatabase() {
   try {
-    await pool.query('SELECT NOW()');
-    res.status(200).json({ 
-      status: 'OK', 
-      service: 'genesis-map-api',
-      timestamp: new Date().toISOString(),
-      database: 'connected'
-    });
-  } catch (err) {
-    console.error('Health check failed:', err);
-    res.status(503).json({ 
-      status: 'ERROR', 
-      service: 'genesis-map-api',
-      error: 'Database connection failed',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// --- Работа с пользователями ---
-// Эндпоинт для регистрации/обновления пользователя
-app.post('/api/users/register', async (req, res) => {
-  try {
-    const { telegram_id, first_name, last_name, username } = req.body;
-    
-    // Проверка обязательных полей
-    if (!telegram_id) {
-       return res.status(400).json({ error: 'telegram_id is required' });
-    }
-
-    // Попытка вставить пользователя или обновить информацию, если он уже существует
-    const result = await pool.query(
-      `INSERT INTO users (telegram_id, first_name, last_name, username)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (telegram_id) 
-       DO UPDATE SET
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         username = EXCLUDED.username,
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [telegram_id, first_name || null, last_name || null, username || null]
-    );
-    
-    console.log(`✅ Пользователь зарегистрирован/обновлён: ${telegram_id}`);
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('❌ Ошибка регистрации пользователя:', error);
-    res.status(500).json({ error: 'Database error', details: error.message });
-  }
-});
-// -------------------------------
-
-// --- Работа с метками пользователей ---
-// Эндпоинт для сохранения/удаления метки пользователя
-app.post('/api/marks', async (req, res) => {
-  try {
-    const { user_id, tile_id, mark_type, comment } = req.body;
-    
-    // Проверка обязательных полей
-    if (!user_id || !tile_id || !mark_type) {
-       return res.status(400).json({ error: 'user_id, tile_id, and mark_type are required' });
-    }
-
-    // --- Автоматическая регистрация пользователя, если его нет ---
-    const userCheck = await pool.query(
-      'SELECT 1 FROM users WHERE telegram_id = $1',
-      [user_id]
-    );
-    
-    if (userCheck.rowCount === 0) {
-        console.log(`ℹ️ Пользователь ${user_id} не найден, регистрируем...`);
-        await pool.query(
-          `INSERT INTO users (telegram_id, first_name, last_name, username)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (telegram_id) DO NOTHING`, // На случай гонки условий
-          [user_id, 'Unknown User', '', 'unknown']
-        );
-        console.log(`✅ Пользователь ${user_id} зарегистрирован для сохранения метки.`);
-    }
-    // ------------------------------------------------------------------------------------------
-
-    // Удаление предыдущей метки такого же типа для этой плитки у этого пользователя
-    await pool.query(
-      `DELETE FROM user_marks 
-       WHERE user_id = $1 AND tile_id = $2 AND mark_type = $3`,
-      [user_id, tile_id, mark_type]
-    );
-    
-    let result;
-    // Сохранение новой метки (если не сброс)
-    if (mark_type !== 'clear') {
-      result = await pool.query(
-        `INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
-         VALUES ($1, $2, $3, $4)
-         RETURNING *`,
-        [user_id, tile_id, mark_type, comment || null] // comment может быть null
+    // Таблица пользователей
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        telegram_id BIGINT PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        username TEXT,
+        language_code TEXT,
+        is_premium BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
-      
-      return res.status(201).json(result.rows[0]);
-    }
-    
-    res.status(200).json({ message: 'Mark cleared' });
+    `);
+
+    console.log('Database initialized');
   } catch (error) {
-    console.error('❌ Ошибка сохранения метки:', error);
+    console.error('Error initializing database:', error);
+  }
+}
+
+// Инициализация бота
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
+
+// Middleware для парсинга JSON
+app.use(express.json());
+
+// Регистрация пользователя в базе данных
+app.post('/register', async (req, res) => {
+  try {
+    const { telegram_id, first_name, last_name, username, language_code } = req.body;
+
+    const query = `
+      INSERT INTO users (telegram_id, first_name, last_name, username, language_code)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (telegram_id) 
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        username = EXCLUDED.username,
+        language_code = EXCLUDED.language_code,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
+
+    const values = [telegram_id, first_name, last_name, username, language_code];
+    const result = await pool.query(query, values);
+
+    res.status(200).json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('Error registering user:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Эндпоинт для получения всех пользователей (для рассылки)
+app.get('/users', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT telegram_id FROM users');
+    const userIds = result.rows.map(row => row.telegram_id);
+    res.status(200).json(userIds);
+  } catch (error) {
+    console.error('Error fetching users:', error);
     res.status(500).json({ error: 'Database error', details: error.message });
   }
 });
 
-// Эндпоинт для получения всех меток пользователя
-app.get('/api/marks/:user_id', async (req, res) => {
+// Эндпоинт для уведомлений
+app.post('/notify', async (req, res) => {
   try {
-    const userId = req.params.user_id;
-    
-    if (!userId) {
-       return res.status(400).json({ error: 'user_id is required' });
-    }
-
-    const result = await pool.query(
-      `SELECT tile_id, mark_type, comment, created_at FROM user_marks WHERE user_id = $1`,
-      [userId]
-    );
-    
-    res.json(result.rows);
+    const { user_id, tile_id, action, comment } = req.body;
+    // Здесь можно отправить уведомление пользователю или сохранить в базе
+    console.log(`Notification: User ${user_id} performed ${action} on tile ${tile_id} with comment: ${comment}`);
+    res.status(200).json({ success: true });
   } catch (error) {
-    console.error('❌ Ошибка загрузки меток:', error);
-    res.status(500).json({ error: 'Database error', details: error.message });
+    console.error('Error processing notification:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
-// -----------------------------------
 
-// --- Работа с кешем тайлов ---
-// Эндпоинт для получения последнего кеша
-app.get('/api/tiles-cache', async (req, res) => {
+// Эндпоинт для здоровья приложения
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Обработчик команды /start
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+  const user = msg.from;
+
   try {
-    const result = await pool.query(
-      `SELECT data, last_updated FROM tiles_cache 
-       ORDER BY last_updated DESC 
-       LIMIT 1`
-    );
-    
-    if (result.rows.length > 0) {
-        res.json(result.rows[0]);
+    // Регистрируем пользователя в базе данных
+    const response = await fetch(`${process.env.API_URL || 'http://localhost:3000'}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegram_id: user.id,
+        first_name: user.first_name,
+        last_name: user.last_name || '',
+        username: user.username,
+        language_code: user.language_code || 'ru'
+      })
+    });
+
+    if (response.ok) {
+      bot.sendMessage(chatId, 'Добро пожаловать в GENESIS WAR MAP! Используйте /help для списка команд.');
     } else {
-        res.status(404).json({ error: 'Cache not found' });
+      bot.sendMessage(chatId, 'Произошла ошибка при регистрации. Пожалуйста, попробуйте позже.');
     }
   } catch (error) {
-    console.error('❌ Ошибка загрузки кеша:', error);
-    res.status(500).json({ error: 'Database error', details: error.message });
+    console.error('Error in /start command:', error);
+    bot.sendMessage(chatId, 'Произошла ошибка. Пожалуйста, попробуйте позже.');
   }
 });
 
-// Эндпоинт для сохранения/обновления кеша
-app.post('/api/tiles-cache', async (req, res) => {
-  try {
-    const { tilesResponse } = req.body; // Ожидаем весь объект tilesResponse
-    
-    if (!tilesResponse) {
-       return res.status(400).json({ error: 'tilesResponse is required' });
-    }
+// Команда /help
+bot.onText(/\/help/, (msg) => {
+  const chatId = msg.chat.id;
+  const helpText = `
+Доступные команды:
+/start - Запустить бота
+/help - Показать помощь
+/map - Получить ссылку на карту
+/stats - Показать статистику
+  `;
+  bot.sendMessage(chatId, helpText);
+});
 
-    const result = await pool.query(
-      `INSERT INTO tiles_cache (data) 
-       VALUES ($1) 
-       RETURNING data, last_updated`,
-      [tilesResponse] // Сохраняем весь объект
-    );
+// Команда /map
+bot.onText(/\/map/, (msg) => {
+  const chatId = msg.chat.id;
+  const mapUrl = process.env.MAP_URL || 'https://your-map-app-url.com';
+  bot.sendMessage(chatId, `Карта GENESIS WAR MAP: ${mapUrl}`);
+});
+
+// Команда /stats
+bot.onText(/\/stats/, async (msg) => {
+  const chatId = msg.chat.id;
+  
+  try {
+    const result = await pool.query('SELECT COUNT(*) FROM users');
+    const userCount = result.rows[0].count;
     
-    res.status(201).json(result.rows[0]);
+    bot.sendMessage(chatId, `Статистика бота:\n\n👥 Зарегистрированных пользователей: ${userCount}`);
   } catch (error) {
-    console.error('❌ Ошибка сохранения кеша:', error);
-    res.status(500).json({ error: 'Database error', details: error.message });
+    console.error('Error fetching stats:', error);
+    bot.sendMessage(chatId, 'Произошла ошибка при получении статистики.');
   }
 });
-// --------------------------
 
-// --- Прокси для получения данных с основного сервера игры ---
-app.get('/api/proxy/tile-info', async (req, res) => {
+// Рассылка сообщений (только для администраторов)
+bot.onText(/\/broadcast (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const message = match[1];
+
+  // Проверяем, является ли пользователь администратором
+  const isAdmin = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').includes(msg.from.id.toString()) : false;
+
+  if (!isAdmin) {
+    return bot.sendMessage(chatId, 'У вас нет прав для выполнения этой команды.');
+  }
+
   try {
-    console.log('📥 Запрос данных с основного сервера игры...');
-    // Увеличенный таймаут
-    const url = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
-    const response = await fetch(url, {
-      timeout: 30000 // 30 секунд таймаут
-    });
-    
+    const response = await fetch(`${process.env.API_URL || 'http://localhost:3000'}/users`);
     if (!response.ok) {
-      throw new Error(`Remote server error: ${response.status} ${response.statusText}`);
+      throw new Error('Ошибка получения пользователей');
     }
-    
-    const data = await response.json();
-    console.log(`📥 Получено данных: ${Object.keys(data.tiles || {}).length} тайлов`);
-    res.json(data);
+    const userIds = await response.json();
+
+    let sent = 0;
+    for (const uid of userIds) {
+      try {
+        await bot.sendMessage(uid, `📢 Рассылка от администратора:\n\n${message}`);
+        sent++;
+        // Задержка между сообщениями, чтобы избежать ограничений Telegram
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (err) {
+        console.error(`Cannot send to ${uid}:`, err.message);
+      }
+    }
+
+    bot.sendMessage(chatId, `Рассылка завершена: отправлено ${sent}/${userIds.length}`);
   } catch (error) {
-    console.error('❌ Proxy error:', error);
-    // Возвращаем более детализированную ошибку
-    res.status(502).json({ 
-      error: 'Proxy error', 
-      details: error.message,
-      timestamp: new Date().toISOString(),
-      target: 'https://back.genesis-of-ages.space/manage/get_tile_info.php'
-    });
+    console.error('Error in broadcast:', error);
+    bot.sendMessage(chatId, 'Ошибка при рассылке сообщения.');
   }
 });
-// -----------------------------------------------------------------
 
-// --- Обработка 404 для API ---
-app.use('/api/*', (req, res) => {
-  res.status(404).json({ error: 'API endpoint not found', path: req.path });
+// Обработка callback-ов от inline-клавиатур
+bot.on('callback_query', (callbackQuery) => {
+  const msg = callbackQuery.message;
+  const data = callbackQuery.data;
+
+  // Обработка различных callback-ов
+  if (data === 'show_map') {
+    const mapUrl = process.env.MAP_URL || 'https://your-map-app-url.com';
+    bot.sendMessage(msg.chat.id, `Карта GENESIS WAR MAP: ${mapUrl}`);
+  }
+
+  // Ответ на callback
+  bot.answerCallbackQuery(callbackQuery.id);
 });
-// ----------------------------
 
-// --- Обработка ошибок ---
-app.use((error, req, res, next) => {
-  console.error('🔥 Server error:', error);
-  res.status(500).json({ 
-    error: 'Internal server error', 
-    details: error.message,
-    timestamp: new Date().toISOString()
-  });
+// Запуск сервера
+app.listen(port, async () => {
+  console.log(`Server is running on port ${port}`);
+  await initDatabase();
 });
-// ------------------------
 
-// --- Экспорт для интеграции или тестирования ---
-let server;
+// Обработка ошибок базы данных
+pool.on('error', (err) => {
+  console.error('Unexpected database error', err);
+  process.exit(-1);
+});
 
-function startAPIServer() {
-    return new Promise((resolve) => {
-        server = app.listen(PORT, '0.0.0.0', () => {
-          console.log(`🚀 Веб-API для карты запущен на порту ${PORT}`);
-          console.log(`📊 База данных: ${process.env.DATABASE_URL ? 'Настроена' : 'Не настроена'}`);
-          console.log(`🌐 CORS origins: ${corsOptions.origin.join(', ')}`);
-          resolve(server);
-        });
-    });
-}
-
-function stopAPIServer() {
-    if (server) {
-        server.close(() => {
-            console.log('🛑 Веб-API сервер остановлен');
-        });
-    }
-}
-
-// Запуск сервера, если этот файл запущен напрямую
-if (import.meta.url === `file://${process.argv[1]}`) {
-    startAPIServer().catch(console.error);
-}
-
-export { app, startAPIServer, stopAPIServer, pool };
+module.exports = app;
