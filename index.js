@@ -1,11 +1,16 @@
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const { Pool } = require('pg');
-const axios = require('axios');
-require('dotenv').config();
+import TelegramBot from 'node-telegram-bot-api';
+import express from 'express';
+import pkg from 'pg';
+const { Pool } = pkg;
+import fetch from 'node-fetch';
+import cors from 'cors';
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json());
+app.use(cors());
 
 // Настройка подключения к базе данных Neon
 const pool = new Pool({
@@ -41,9 +46,6 @@ async function initDatabase() {
 // Инициализация бота
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
-
-// Middleware для парсинга JSON
-app.use(express.json());
 
 // Регистрация пользователя в базе данных
 app.post('/register', async (req, res) => {
@@ -233,4 +235,4 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
-module.exports = app;
+export default app;
