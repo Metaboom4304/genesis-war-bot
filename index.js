@@ -2,7 +2,6 @@ import TelegramBot from 'node-telegram-bot-api';
 import express from 'express';
 import pkg from 'pg';
 const { Pool } = pkg;
-import fetch from 'node-fetch';
 import cors from 'cors';
 
 const app = express();
@@ -111,24 +110,24 @@ bot.onText(/\/start/, async (msg) => {
   const user = msg.from;
 
   try {
-    // Регистрируем пользователя в базе данных
-    const response = await fetch(`${process.env.API_URL || 'http://localhost:3000'}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        telegram_id: user.id,
-        first_name: user.first_name,
-        last_name: user.last_name || '',
-        username: user.username,
-        language_code: user.language_code || 'ru'
-      })
-    });
+    // Регистрируем пользователя в базе данных напрямую
+    const query = `
+      INSERT INTO users (telegram_id, first_name, last_name, username, language_code)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (telegram_id) 
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        username = EXCLUDED.username,
+        language_code = EXCLUDED.language_code,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
 
-    if (response.ok) {
-      bot.sendMessage(chatId, 'Добро пожаловать в GENESIS WAR MAP! Используйте /help для списка команд.');
-    } else {
-      bot.sendMessage(chatId, 'Произошла ошибка при регистрации. Пожалуйста, попробуйте позже.');
-    }
+    const values = [user.id, user.first_name, user.last_name || '', user.username, user.language_code || 'ru'];
+    const result = await pool.query(query, values);
+
+    bot.sendMessage(chatId, 'Добро пожаловать в GENESIS WAR MAP! Используйте /help для списка команд.');
   } catch (error) {
     console.error('Error in /start command:', error);
     bot.sendMessage(chatId, 'Произошла ошибка. Пожалуйста, попробуйте позже.');
@@ -151,7 +150,7 @@ bot.onText(/\/help/, (msg) => {
 // Команда /map
 bot.onText(/\/map/, (msg) => {
   const chatId = msg.chat.id;
-  const mapUrl = process.env.MAP_URL || 'https://your-map-app-url.com';
+  const mapUrl = process.env.MAP_URL || 'https://genesis-data.onrender.com';
   bot.sendMessage(chatId, `Карта GENESIS WAR MAP: ${mapUrl}`);
 });
 
@@ -183,11 +182,9 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
   }
 
   try {
-    const response = await fetch(`${process.env.API_URL || 'http://localhost:3000'}/users`);
-    if (!response.ok) {
-      throw new Error('Ошибка получения пользователей');
-    }
-    const userIds = await response.json();
+    // Получаем пользователей напрямую из базы данных
+    const result = await pool.query('SELECT telegram_id FROM users');
+    const userIds = result.rows.map(row => row.telegram_id);
 
     let sent = 0;
     for (const uid of userIds) {
@@ -215,7 +212,7 @@ bot.on('callback_query', (callbackQuery) => {
 
   // Обработка различных callback-ов
   if (data === 'show_map') {
-    const mapUrl = process.env.MAP_URL || 'https://your-map-app-url.com';
+    const mapUrl = process.env.MAP_URL || 'https://genesis-data.onrender.com';
     bot.sendMessage(msg.chat.id, `Карта GENESIS WAR MAP: ${mapUrl}`);
   }
 
