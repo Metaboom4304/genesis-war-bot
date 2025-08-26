@@ -1,8 +1,9 @@
-import TelegramBot from 'node-telegram-bot-api';
+// index.js - API Сервис (genesis-map-api)
 import express from 'express';
+import cors from 'cors';
 import pkg from 'pg';
 const { Pool } = pkg;
-import cors from 'cors';
+import 'dotenv/config'; // Убедитесь, что dotenv/config импортирован
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -26,7 +27,6 @@ async function checkDatabaseConnection() {
     console.log('✅ Database connection successful');
     client.release();
     
-    // Проверяем существование таблицы
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -40,10 +40,9 @@ async function checkDatabaseConnection() {
   }
 }
 
-// Создаем таблицы, если они не существуют
+// Создаем таблицы, если они не существуют (на случай первого запуска)
 async function initDatabase() {
   try {
-    // Таблица пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         telegram_id BIGINT PRIMARY KEY,
@@ -57,38 +56,30 @@ async function initDatabase() {
       );
     `);
 
+    // Добавим недостающие столбцы, если их нет (на всякий случай)
+    try {
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS language_code TEXT;`);
+    } catch (e) { console.log("Column language_code may already exist or error:", e.message); }
+    try {
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;`);
+    } catch (e) { console.log("Column is_premium may already exist or error:", e.message); }
+    try {
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`);
+    } catch (e) { console.log("Column updated_at may already exist or error:", e.message); }
+
     console.log('✅ Database initialized');
   } catch (error) {
     console.error('❌ Error initializing database:', error);
   }
 }
 
-// Инициализация бота
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-  console.error('❌ TELEGRAM_BOT_TOKEN is not set');
-  process.exit(1);
-}
-
-const bot = new TelegramBot(token, { polling: true });
-
-// Логирование событий бота
-bot.on('polling_error', (error) => {
-  console.error('❌ Telegram polling error:', error);
-});
-
-bot.on('webhook_error', (error) => {
-  console.error('❌ Telegram webhook error:', error);
-});
-
-console.log('✅ Telegram bot initialized');
+// --- API Эндпоинты ---
 
 // Регистрация пользователя в базе данных
 app.post('/register', async (req, res) => {
   try {
-    const { telegram_id, first_name, last_name, username, language_code } = req.body;
+    const { telegram_id, first_name, last_name, username, language_code, is_premium } = req.body;
 
-    // Проверка обязательных полей
     if (!telegram_id || !first_name) {
       return res.status(400).json({ 
         success: false, 
@@ -97,19 +88,27 @@ app.post('/register', async (req, res) => {
     }
 
     const query = `
-      INSERT INTO users (telegram_id, first_name, last_name, username, language_code)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO users (telegram_id, first_name, last_name, username, language_code, is_premium)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (telegram_id) 
       DO UPDATE SET
         first_name = EXCLUDED.first_name,
         last_name = EXCLUDED.last_name,
         username = EXCLUDED.username,
         language_code = EXCLUDED.language_code,
+        is_premium = EXCLUDED.is_premium,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *;
     `;
 
-    const values = [telegram_id, first_name, last_name || null, username || null, language_code || 'ru'];
+    const values = [
+      telegram_id, 
+      first_name, 
+      last_name || null, 
+      username || null, 
+      language_code || 'ru',
+      is_premium || false
+    ];
     const result = await pool.query(query, values);
 
     res.status(200).json({ success: true, user: result.rows[0] });
@@ -135,11 +134,29 @@ app.get('/users', async (req, res) => {
   }
 });
 
-// Эндпоинт для уведомлений
+// Эндпоинт для получения информации о пользователе по ID
+app.get('/users/:id', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const result = await pool.query('SELECT * FROM users WHERE telegram_id = $1', [userId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error('❌ Error fetching user:', error);
+    res.status(500).json({ error: 'Database error', details: error.message });
+  }
+});
+
+// Эндпоинт для уведомлений (пример)
 app.post('/notify', async (req, res) => {
   try {
     const { user_id, tile_id, action, comment } = req.body;
     console.log(`Notification: User ${user_id} performed ${action} on tile ${tile_id} with comment: ${comment}`);
+    // Здесь можно добавить логику обработки уведомления, например, запись в БД или отправку сообщения через бот
     res.status(200).json({ success: true });
   } catch (error) {
     console.error('❌ Error processing notification:', error);
@@ -165,129 +182,61 @@ app.get('/test', (req, res) => {
   });
 });
 
-// Обработчик команды /start
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const user = msg.from;
+// --- Эндпоинты для данных карты ---
+// Эти эндпоинты нужно реализовать в соответствии с логикой вашего приложения
+// Примеры:
 
-  try {
-    // Регистрируем пользователя в базе данных напрямую
-    const query = `
-      INSERT INTO users (telegram_id, first_name, last_name, username, language_code)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (telegram_id) 
-      DO UPDATE SET
-        first_name = EXCLUDED.first_name,
-        last_name = EXCLUDED.last_name,
-        username = EXCLUDED.username,
-        language_code = EXCLUDED.language_code,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *;
-    `;
-
-    const values = [user.id, user.first_name, user.last_name || '', user.username, user.language_code || 'ru'];
-    const result = await pool.query(query, values);
-
-    bot.sendMessage(chatId, 'Добро пожаловать в GENESIS WAR MAP! Используйте /help для списка команд.');
-    console.log(`✅ User ${user.id} registered`);
-  } catch (error) {
-    console.error('❌ Error in /start command:', error);
-    bot.sendMessage(chatId, 'Произошла ошибка. Пожалуйста, попробуйте позже.');
-  }
-});
-
-// Команда /help
-bot.onText(/\/help/, (msg) => {
-  const chatId = msg.chat.id;
-  const helpText = `
-Доступные команды:
-/start - Запустить бота
-/help - Показать помощь
-/map - Получить ссылку на карту
-/stats - Показать статистику
-  `;
-  bot.sendMessage(chatId, helpText);
-});
-
-// Команда /map
-bot.onText(/\/map/, (msg) => {
-  const chatId = msg.chat.id;
-  const mapUrl = process.env.MAP_URL || 'https://genesis-data.onrender.com';
-  bot.sendMessage(chatId, `Карта GENESIS WAR MAP: ${mapUrl}`);
-});
-
-// Команда /stats
-bot.onText(/\/stats/, async (msg) => {
-  const chatId = msg.chat.id;
-  
-  try {
-    const result = await pool.query('SELECT COUNT(*) FROM users');
-    const userCount = result.rows[0].count;
-    
-    bot.sendMessage(chatId, `Статистика бота:\n\n👥 Зарегистрированных пользователей: ${userCount}`);
-  } catch (error) {
-    console.error('❌ Error fetching stats:', error);
-    bot.sendMessage(chatId, 'Произошла ошибка при получении статистики.');
-  }
-});
-
-// Рассылка сообщений (только для администраторов)
-bot.onText(/\/broadcast (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const message = match[1];
-
-  // Проверяем, является ли пользователь администратором
-  const isAdmin = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').includes(msg.from.id.toString()) : false;
-
-  if (!isAdmin) {
-    return bot.sendMessage(chatId, 'У вас нет прав для выполнения этой команды.');
-  }
-
-  try {
-    // Получаем пользователей напрямую из базы данных
-    const result = await pool.query('SELECT telegram_id FROM users');
-    const userIds = result.rows.map(row => row.telegram_id);
-
-    let sent = 0;
-    for (const uid of userIds) {
-      try {
-        await bot.sendMessage(uid, `📢 Рассылка от администратора:\n\n${message}`);
-        sent++;
-        // Задержка между сообщениями, чтобы избежать ограничений Telegram
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (err) {
-        console.error(`❌ Cannot send to ${uid}:`, err.message);
-      }
+app.get('/api/marks/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    // Логика получения меток для пользователя userId
+    // Например, из таблицы user_marks
+    try {
+        // const result = await pool.query('SELECT * FROM user_marks WHERE user_id = $1', [userId]);
+        // res.status(200).json(result.rows);
+        // Пока возвращаем пустой массив или тестовые данные
+        res.status(200).json([]); // Заглушка
+    } catch (error) {
+        console.error('Error fetching marks:', error);
+        res.status(500).json({ error: 'Failed to fetch marks' });
     }
-
-    bot.sendMessage(chatId, `Рассылка завершена: отправлено ${sent}/${userIds.length}`);
-  } catch (error) {
-    console.error('❌ Error in broadcast:', error);
-    bot.sendMessage(chatId, 'Ошибка при рассылке сообщения.');
-  }
 });
 
-// Обработка callback-ов от inline-клавиатур
-bot.on('callback_query', (callbackQuery) => {
-  const msg = callbackQuery.message;
-  const data = callbackQuery.data;
-
-  // Обработка различных callback-ов
-  if (data === 'show_map') {
-    const mapUrl = process.env.MAP_URL || 'https://genesis-data.onrender.com';
-    bot.sendMessage(msg.chat.id, `Карта GENESIS WAR MAP: ${mapUrl}`);
-  }
-
-  // Ответ на callback
-  bot.answerCallbackQuery(callbackQuery.id);
+app.get('/api/tiles-cache', async (req, res) => {
+    // Логика получения кэшированной информации о тайлах
+    // Например, из таблицы tiles_caches
+    try {
+        // const result = await pool.query('SELECT * FROM tiles_caches');
+        // res.status(200).json(result.rows);
+        // Пока возвращаем пустой массив или тестовые данные
+        res.status(200).json([]); // Заглушка
+    } catch (error) {
+        console.error('Error fetching tiles cache:', error);
+        res.status(500).json({ error: 'Failed to fetch tiles cache' });
+    }
 });
 
-// Запуск сервера
+app.get('/api/proxy/tile-info', async (req, res) => {
+    // Логика проксирования запроса к внешнему источнику тайлов
+    // или получения информации из локальной БД
+    try {
+        // const result = await pool.query('SELECT ... FROM ...');
+        // res.status(200).json(result.rows);
+        // Пока возвращаем пустой объект или тестовые данные
+        res.status(200).json({}); // Заглушка
+    } catch (error) {
+        console.error('Error fetching proxy tile info:', error);
+        res.status(500).json({ error: 'Failed to fetch proxy tile info' });
+    }
+});
+
+
+// --- Запуск сервера ---
+
 app.listen(port, async () => {
-  console.log(`🚀 Server is running on port ${port}`);
+  console.log(`🚀 genesis-map-api server is running on port ${port}`);
   await initDatabase();
   await checkDatabaseConnection();
-  console.log(`✅ Service genesis-map-api started successfully`);
+  console.log(`✅ genesis-map-api service started successfully`);
 });
 
 // Обработка ошибок базы данных
@@ -296,4 +245,21 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
-export default app;
+// Graceful shutdown для API
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down API gracefully');
+  pool.end(() => {
+    console.log('Database pool closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down API gracefully');
+  pool.end(() => {
+    console.log('Database pool closed');
+    process.exit(0);
+  });
+});
+
+export default app; // Необязательно для запуска, но полезно если будет импортироваться
