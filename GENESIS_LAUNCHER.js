@@ -1,27 +1,14 @@
 // ============================
-// GENESIS_LAUNCHER.js (ESM)
+// GENESIS_LAUNCHER.js (ESM) - Основной файл бота
 // ============================
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import express from 'express';
+import express from 'express'; // Оставлен для keep-alive эндпоинта
 import TelegramBot from 'node-telegram-bot-api';
 import { Octokit } from '@octokit/rest';
 import { fileURLToPath, pathToFileURL } from 'url';
 import cors from 'cors';
-
-// Импорт и запуск веб-API
-import { startAPIServer } from './index.js';
-startAPIServer().catch(console.error);
-
-// Если у тебя есть регекс-обработчик рассылки — подключим при наличии
-let setupBroadcastRegex = null;
-try {
-  const mod = await import('./commands/broadcast_type.js');
-  setupBroadcastRegex = mod.setupBroadcastRegex || null;
-} catch {
-  // Не критично
-}
 
 // -----------------------------
 // ENV проверка
@@ -43,7 +30,7 @@ const GITHUB_TOKEN  = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER  = process.env.GITHUB_OWNER;
 const GITHUB_REPO   = process.env.GITHUB_REPO;
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
-const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000;
+const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000; // PORT для совместимости с Render
 
 const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = path.dirname(__filename);
@@ -146,7 +133,6 @@ async function fetchMapStatus() {
     const raw = Buffer.from(res.data.content, 'base64').toString('utf8');
     return { sha: res.data.sha, status: JSON.parse(raw) };
   } catch (err) {
-    // Если файл ещё не создан — вернём дефолт
     logger.warn('map-status.json not found, using defaults');
     return {
       sha: undefined,
@@ -190,7 +176,6 @@ async function broadcastAll(bot, message) {
       sent++;
     } catch (err) {
       console.error(`⚠️ Cannot send to ${uid}:`, err.response?.body || err.message);
-      // Если пользователь заблокировал бота — удалим
       if (err.response?.statusCode === 403) {
         delete users[uid];
         console.log(`🗑️ Removed user ${uid}`);
@@ -203,26 +188,22 @@ async function broadcastAll(bot, message) {
 }
 
 // -----------------------------
-// Reply-меню (ИЗМЕНЕНО)
+// Reply-меню
 // -----------------------------
 function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
   const isAdmin = String(uid) === ADMIN_ID;
   
-  // --- Измененные кнопки пользователя ---
   const baseButtons = [
     ['🤖 Инфо', '🛣 Дорожная карта'],
     ['🌐 Ссылки', '❓ Помощь'],
-    ['🗺 Карта'] // Карта пятой по счету (в этом массиве - третья, но будет первой в новой строке)
+    ['🗺 Карта']
   ];
-  // ------------------------------------
 
-  // --- Измененные кнопки админа ---
   const adminButtons = [
     ['📢 Рассылка', '📃 Логи'],
     ['⚠️ Отключить карту', '🔄 Включить карту'],
-    ['👥 Добавить админа', '👥 Список пользователей'] // Заменено Admins на Список пользователей
+    ['👥 Добавить админа', '👥 Список пользователей']
   ];
-  // -------------------------------
 
   const keyboard = isAdmin ? [...baseButtons, ...adminButtons] : baseButtons;
 
@@ -232,13 +213,12 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
 }
 
 // -----------------------------
-// Express keep-alive
+// Express keep-alive (если требуется Render)
 // -----------------------------
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Добавляем эндпоинты для API
 app.get('/health', (_req, res) => {
   res.status(200).json({ 
     status: 'ok', 
@@ -247,65 +227,23 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.post('/register', async (req, res) => {
-  try {
-    const { telegram_id, first_name, last_name, username, language_code } = req.body;
-    
-    // Регистрируем пользователя
-    registerUser(telegram_id);
-    
-    console.log(`✅ Пользователь зарегистрирован в боте: ${telegram_id}`);
-    res.status(200).json({ 
-      status: 'success', 
-      message: 'User registered in bot',
-      user_id: telegram_id
-    });
-  } catch (error) {
-    console.error('❌ Ошибка регистрации в боте:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: error.message 
-    });
-  }
-});
-
-app.post('/notify', async (req, res) => {
-  try {
-    const { user_id, tile_id, action, comment } = req.body;
-    
-    // Логируем уведомление
-    console.log(`📢 Уведомление: пользователь ${user_id} выполнил ${action} на тайле ${tile_id}`);
-    
-    res.status(200).json({ 
-      status: 'success', 
-      message: 'Notification processed'
-    });
-  } catch (error) {
-    console.error('❌ Ошибка обработки уведомления:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: error.message 
-    });
-  }
-});
-
 app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
-// ИСПРАВЛЕНО: Используем BOT_PORT и явно указываем хост
-app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express listening on port ${BOT_PORT}`));
+
+app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express (keep-alive) listening on port ${BOT_PORT}`));
 setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 
 // -----------------------------
-// Telegram Bot
+// Telegram Bot - только POLLING
 // -----------------------------
 activateBotFlag();
 const bot = new TelegramBot(TOKEN, { polling: true });
 
 bot.getMe()
-  .then(me => console.log(`✅ GENESIS active as @${me.username}`))
+  .then(me => console.log(`✅ GENESIS bot active as @${me.username}`))
   .catch(console.error);
 
 // -----------------------------
-// Команды: загрузка с отладкой
+// Команды: загрузка
 // -----------------------------
 const commands = new Map();
 
@@ -326,7 +264,6 @@ try {
 for (const file of commandFiles) {
   const filepath = path.join(commandsPath, file);
   try {
-    // Для надёжности на разных платформах используем file://
     const fileUrl = pathToFileURL(filepath).href;
     const { default: command } = await import(fileUrl);
 
@@ -350,20 +287,17 @@ try {
   aliases = JSON.parse(fs.readFileSync(aliasesPath, 'utf8'));
   console.log('🔗 Aliases loaded');
 } catch {
-  console.warn('⚠️ aliases.json не найден или пуст — работаем без алиасов');
+  console.warn('⚠️ aliases.json not found or empty');
 }
 
 function resolveCommandKey(input) {
   if (!input) return '';
   const cleaned = input.toLowerCase().replace(/[^a-zа-я0-9]/gi, '');
 
-  // 1) Алиасы
   for (const [key, variants] of Object.entries(aliases)) {
     if (cleaned === key || (Array.isArray(variants) && variants.includes(cleaned))) return key;
   }
-  // 2) Точное совпадение по ключу
   if (commands.has(cleaned)) return cleaned;
-  // 3) Частичный префикс
   for (const key of commands.keys()) {
     if (cleaned.startsWith(key)) return key;
   }
@@ -373,6 +307,14 @@ function resolveCommandKey(input) {
 // -----------------------------
 // Broadcast Regex (опционально)
 // -----------------------------
+let setupBroadcastRegex = null;
+try {
+  const mod = await import('./commands/broadcast_type.js');
+  setupBroadcastRegex = mod.setupBroadcastRegex || null;
+} catch {
+  console.log('ℹ️ broadcast_type.js not found — skipping regex handler');
+}
+
 if (typeof setupBroadcastRegex === 'function') {
   try {
     setupBroadcastRegex(bot, [Number(ADMIN_ID)], { usersPath });
@@ -385,12 +327,8 @@ if (typeof setupBroadcastRegex === 'function') {
 }
 
 // -----------------------------
-// Обработчик сообщений
-// -----------------------------
-const broadcastPending = new Set();
-const disablePending   = new Set();
-
 // Глобалы для совместимости с командами
+// -----------------------------
 Object.assign(globalThis, {
   ADMIN_ID,
   GITHUB_OWNER,
@@ -405,9 +343,19 @@ Object.assign(globalThis, {
   registerUser,
   logsPath,
   usersPath,
+  logger // Добавлен logger
+});
+
+// -----------------------------
+// Обработчик сообщений
+// -----------------------------
+const broadcastPending = new Set();
+const disablePending   = new Set();
+
+// Добавляем в глобалы для команд
+Object.assign(globalThis, {
   broadcastPending,
-  disablePending,
-  logger
+  disablePending
 });
 
 bot.on('message', async (msg) => {
@@ -417,7 +365,6 @@ bot.on('message', async (msg) => {
 
   const cmdKey = resolveCommandKey(text);
 
-  // Отладка
   console.log('RAW TEXT:', text);
   console.log('CMD KEY:', cmdKey);
   console.log('ALL COMMANDS:', Array.from(commands.keys()));
@@ -425,7 +372,7 @@ bot.on('message', async (msg) => {
   // Обработка ожидаемых ответов рассылки
   if (
     broadcastPending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Write broadcast text') // Можно тоже перевести
+    msg.reply_to_message?.text?.includes('Write broadcast text')
   ) {
     broadcastPending.delete(uid);
     await broadcastAll(bot, text);
@@ -436,7 +383,7 @@ bot.on('message', async (msg) => {
   // Подтверждение отключения карты
   if (
     disablePending.has(uid) &&
-    msg.reply_to_message?.text?.includes('Confirm disabling map') // Можно тоже перевести
+    msg.reply_to_message?.text?.includes('Confirm disabling map')
   ) {
     disablePending.delete(uid);
     const disableMsg = '🔒 Genesis временно отключен.\nМы скоро вернемся с чем-то большим.';
@@ -469,10 +416,8 @@ bot.on('message', async (msg) => {
     if (userList.length === 0) {
         return bot.sendMessage(chatId, '📭 Список пользователей пуст.');
     }
-    // Формируем сообщение со списком
     let message = `👥 Зарегистрированные пользователи (${userList.length}):\n`;
-    // Ограничим длину сообщения, если пользователей много
-    const maxUsersToShow = 50; // Можно настроить
+    const maxUsersToShow = 50;
     const usersToShow = userList.slice(0, maxUsersToShow);
     message += usersToShow.map(id => `ID: ${id}`).join('\n');
     if (userList.length > maxUsersToShow) {
@@ -499,19 +444,18 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Если команда не найдена — можно вернуть меню/подсказку
+  // Если команда не найдена
   // await bot.sendMessage(chatId, 'ℹ️ Команда не распознана. Нажмите кнопку в меню ниже.');
   // return sendReplyMenu(bot, chatId, uid);
 });
 
-// --- Обработка inline-кнопок (например, обновление списка пользователей) ---
+// --- Обработка inline-кнопок ---
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const uid = String(query.from.id);
     const data = query.data;
 
     if (data === 'refresh_users' && uid === ADMIN_ID) {
-        // Редактируем сообщение с новым списком
         const users = readUsers();
         const userList = Object.keys(users);
         let message = `👥 Зарегистрированные пользователи (${userList.length}):\n`;
@@ -532,15 +476,13 @@ bot.on('callback_query', async (query) => {
                 }
             });
         } catch (err) {
-            // Если сообщение не изменилось, Telegram может вернуть ошибку
-            if (err.response?.body?.error_code !== 400) { // Игнорируем "Bad Request: message is not modified"
+            if (err.response?.body?.error_code !== 400) {
                  console.error('Ошибка редактирования сообщения:', err);
             }
         }
-        // Отвечаем на callback, чтобы убрать "крутящийся" индикатор
         await bot.answerCallbackQuery(query.id);
     }
-    // Другие обработчики callback_data можно добавить здесь
+    // Другие обработчики callback_data из команд
 });
 // -------------------------------------------------------------------------
 
@@ -565,17 +507,13 @@ process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
 
 // -----------------------------
-// Watchdog перезапуска polling
+// Watchdog перезапуска polling (по желанию)
 // -----------------------------
-setInterval(async () => {
-  try {
-    const isPolling = typeof bot.isPolling === 'function' ? bot.isPolling() : true;
-    if (!isPolling) {
-      console.warn('⚠️ Polling stopped unexpectedly, restarting…');
-      await bot.startPolling();
-      console.log('🔄 Polling restarted');
-    }
-  } catch (err) {
-    console.error('❌ Failed to restart polling:', err);
-  }
-}, 30_000);
+// setInterval(async () => {
+//   try {
+//     // node-telegram-bot-api не предоставляет isPolling() напрямую
+//     // Этот watchdog может быть не нужен или требует другой реализации
+//   } catch (err) {
+//     console.error('❌ Failed to check/restart polling:', err);
+//   }
+// }, 30_000);
