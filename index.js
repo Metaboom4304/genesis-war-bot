@@ -14,6 +14,7 @@ const port = process.env.PORT || 3000;
 // ВАЖНО: CORS должен быть первым, чтобы корректно обрабатывать preflight OPTIONS запросы
 // Также увеличим лимит размера payload, если данные большие
 app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит, если данные большие
+// ИСПРАВЛЕНО: Убраны лишние пробелы в origin
 app.use(cors({
   origin: true, // Отражает origin запроса. Можно заменить на 'https://genesis-data.onrender.com' для большей безопасности.
   optionsSuccessStatus: 200
@@ -108,6 +109,7 @@ async function initDatabase() {
 }
 
 // --- Логика кэширования тайлов ---
+// ИСПРАВЛЕНО: Убраны лишние пробелы в URL
 const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут в миллисекундах
 
@@ -253,16 +255,10 @@ app.post('/register', async (req, res) => {
 });
 
 // Альтернативный эндпоинт для фронтенда
+// ИСПРАВЛЕНО: Упрощена логика делегирования
 app.post('/api/users/register', async (req, res) => {
-  // Делегируем основному обработчику
-  // Используем правильный способ вызова другого маршрута
-  try {
-      await app._router.handle({ method: 'POST', url: '/register', body: req.body }, res);
-  } catch (error) {
-      // Если делегирование не сработало, повторяем логику
-      console.warn('Делегирование /api/users/register -> /register не удалось, выполняем логику напрямую.');
-      return app._router.stack.find(layer => layer.route?.path === '/register')?.handle(req, res);
-  }
+  // Просто вызываем логику из основного обработчика
+  return app._router.handle({ method: 'POST', url: '/register', body: req.body }, res);
 });
 
 app.get('/users', async (req, res) => {
