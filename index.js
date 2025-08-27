@@ -10,9 +10,14 @@ import 'dotenv/config'; // Убедитесь, что dotenv/config импорт
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(express.json());
-app.use(cors());
+// --- Middleware ---
+// ВАЖНО: CORS должен быть первым, чтобы корректно обрабатывать preflight OPTIONS запросы
+// Также увеличим лимит размера payload, если данные большие
+app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит, если данные большие
+app.use(cors({
+  origin: true, // Отражает origin запроса. Можно заменить на 'https://genesis-data.onrender.com' для большей безопасности.
+  optionsSuccessStatus: 200
+}));
 
 // Настройка подключения к базе данных Neon
 const pool = new Pool({
@@ -117,18 +122,22 @@ async function refreshTileCache() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const tileData = await response.json();
-        console.log(`📥 Получены данные тайлов от внешнего API. Количество ключей: ${Object.keys(tileData).length}`);
+        const fullResponseData = await response.json();
+        console.log(`📥 Получены данные тайлов от внешнего API. Количество ключей в ответе: ${Object.keys(fullResponseData).length}`);
+
+        // Предполагаем, что данные тайлов находятся в поле 'tiles'
+        const tileData = fullResponseData.tiles;
+        if (!tileData || typeof tileData !== 'object') {
+             console.warn('⚠️ Внешний API не вернул ожидаемое поле "tiles" или оно не является объектом.');
+             return false;
+        }
 
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
             
-            // Опционально: очищаем старый кэш перед вставкой новых данных
-            // await client.query('DELETE FROM tiles_caches');
-            
             let updatedCount = 0;
-            // Предполагаем, что tileData - это объект, где ключи - это id_tile
+            // Перебираем только ключи внутри tileData (которые являются id_tile)
             for (const [tileIdStr, tileInfo] of Object.entries(tileData)) {
                 const tileId = parseInt(tileIdStr, 10);
                 if (isNaN(tileId)) {
@@ -246,7 +255,14 @@ app.post('/register', async (req, res) => {
 // Альтернативный эндпоинт для фронтенда
 app.post('/api/users/register', async (req, res) => {
   // Делегируем основному обработчику
-  return app._router.handle({ method: 'POST', url: '/register', body: req.body }, res);
+  // Используем правильный способ вызова другого маршрута
+  try {
+      await app._router.handle({ method: 'POST', url: '/register', body: req.body }, res);
+  } catch (error) {
+      // Если делегирование не сработало, повторяем логику
+      console.warn('Делегирование /api/users/register -> /register не удалось, выполняем логику напрямую.');
+      return app._router.stack.find(layer => layer.route?.path === '/register')?.handle(req, res);
+  }
 });
 
 app.get('/users', async (req, res) => {
@@ -382,10 +398,12 @@ app.get('/api/tiles-cache', async (req, res) => {
 // Сохранение кэша тайлов (если фронтенд или другой сервис его обновляет)
 // Этот эндпоинт может быть полезен, но основное обновление теперь происходит внутри /api/tiles-cache
 app.post('/api/tiles-cache', async (req, res) => {
-    const { tilesResponse } = req.body;
+    // req.body должно содержать данные для кэширования, например { tilesResponse }
+    // Предполагаем, что структура req.body такая же, как у внешнего API: { tiles: { ... } }
+    const { tiles: tilesData } = req.body; 
     
-    if (!tilesResponse || !tilesResponse.tiles) {
-        return res.status(400).json({ error: 'Invalid data format for tiles cache' });
+    if (!tilesData || typeof tilesData !== 'object') {
+        return res.status(400).json({ error: 'Invalid data format for tiles cache. Expected { tiles: { ... } }' });
     }
 
     try {
@@ -393,7 +411,14 @@ app.post('/api/tiles-cache', async (req, res) => {
         try {
             await client.query('BEGIN');
             
-            for (const [tileId, tileData] of Object.entries(tilesResponse.tiles)) {
+            let updatedCount = 0;
+            // Перебираем только ключи внутри tilesData (которые являются id_tile)
+            for (const [tileIdStr, tileData] of Object.entries(tilesData)) {
+                const tileId = parseInt(tileIdStr, 10);
+                if (isNaN(tileId)) {
+                    console.warn(`⚠️ Пропущен некорректный ID тайла при сохранении кэша: ${tileIdStr}`);
+                    continue;
+                }
                 await client.query(
                     `
                     INSERT INTO tiles_caches (tile_id, data, last_updated)
@@ -403,10 +428,11 @@ app.post('/api/tiles-cache', async (req, res) => {
                     `,
                     [tileId, JSON.stringify(tileData)]
                 );
+                updatedCount++;
             }
             
             await client.query('COMMIT');
-            res.status(200).json({ success: true, message: 'Tiles cache updated' });
+            res.status(200).json({ success: true, message: `Tiles cache updated. Updated records: ${updatedCount}` });
         } catch (err) {
             await client.query('ROLLBACK');
             throw err;
@@ -435,10 +461,10 @@ app.get('/api/proxy/tile-info', async (req, res) => {
         const rawData = await response.json();
         
         if (refreshSuccess) {
-            res.status(200).json({ tiles: rawData, message: "Data fetched and cache updated" });
+            res.status(200).json({ ...rawData, message: "Data fetched and cache updated" });
         } else {
              // Даже если кэш не обновился, возвращаем свежие данные
-             res.status(200).json({ tiles: rawData, message: "Data fetched, but cache update failed", cache_update_success: false });
+             res.status(200).json({ ...rawData, message: "Data fetched, but cache update failed", cache_update_success: false });
         }
     } catch (error) {
         console.error('❌ Error in /api/proxy/tile-info:', error);
