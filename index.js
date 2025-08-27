@@ -14,9 +14,9 @@ const port = process.env.PORT || 3000;
 // ВАЖНО: CORS должен быть первым, чтобы корректно обрабатывать preflight OPTIONS запросы
 // Также увеличим лимит размера payload, если данные большие
 app.use(express.json({ limit: '10mb' })); // Увеличиваем лимит, если данные большие
-// ИСПРАВЛЕНО: Убраны лишние пробелы в origin
+// ИСПРАВЛЕНО: Убраны лишние пробелы в origin и EXTERNAL_TILE_API_URL
 app.use(cors({
-  origin: true, // Отражает origin запроса. Можно заменить на 'https://genesis-data.onrender.com' для большей безопасности.
+  origin: 'https://genesis-data.onrender.com', // Разрешить только этот домен для большей безопасности
   optionsSuccessStatus: 200
 }));
 
@@ -255,10 +255,52 @@ app.post('/register', async (req, res) => {
 });
 
 // Альтернативный эндпоинт для фронтенда
-// ИСПРАВЛЕНО: Упрощена логика делегирования
 app.post('/api/users/register', async (req, res) => {
-  // Просто вызываем логику из основного обработчика
-  return app._router.handle({ method: 'POST', url: '/register', body: req.body }, res);
+  // Просто вызываем основной обработчик /register
+  try {
+    // Повторяем логику из /register для надежности
+    const { telegram_id, first_name, last_name, username, language_code, is_premium } = req.body;
+
+    if (!telegram_id || !first_name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: telegram_id and first_name are required' 
+      });
+    }
+
+    const query = `
+      INSERT INTO users (telegram_id, first_name, last_name, username, language_code, is_premium)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (telegram_id) 
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        username = EXCLUDED.username,
+        language_code = EXCLUDED.language_code,
+        is_premium = EXCLUDED.is_premium,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
+
+    const values = [
+      telegram_id, 
+      first_name, 
+      last_name || null, 
+      username || null, 
+      language_code || 'ru',
+      is_premium || false
+    ];
+    const result = await pool.query(query, values);
+
+    res.status(200).json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('❌ Error in /api/users/register:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: 'Database operation failed'
+    });
+  }
 });
 
 app.get('/users', async (req, res) => {
