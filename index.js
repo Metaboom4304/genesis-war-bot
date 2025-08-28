@@ -1,10 +1,13 @@
-// index.js - API Сервис (genesis-map-api) с CDN кэшированием
+// index.js - API Сервис (genesis-map-api) с оптимизацией
 import express from 'express';
 import cors from 'cors';
 import pkg from 'pg';
 const { Pool } = pkg;
 import fetch from 'node-fetch';
 import 'dotenv/config';
+import compression from 'compression';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -17,7 +20,24 @@ const CDN_CACHE_MAX_AGE = 3600; // 1 час для CDN
 const BROWSER_CACHE_MAX_AGE = 300; // 5 минут для браузера
 
 // --- Middleware ---
-// Явная обработка CORS для надежности
+// Безопасность
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// Сжатие
+app.use(compression({ level: 6 }));
+
+// Лимит запросов
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Слишком много запросов, попробуйте позже'
+});
+app.use('/api/', apiLimiter);
+
+// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -220,6 +240,29 @@ async function refreshTileCache() {
   }
 }
 
+// Обработчик ошибок БД
+function withDatabaseErrorHandling(handler) {
+  return async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      console.error('Database error:', error);
+      
+      if (error.code === '23505') { // unique violation
+        return res.status(409).json({ error: 'Duplicate entry' });
+      }
+      if (error.code === '23503') { // foreign key violation
+        return res.status(400).json({ error: 'Invalid reference' });
+      }
+      
+      res.status(500).json({ 
+        error: 'Database error', 
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal error'
+      });
+    }
+  };
+}
+
 // --- CDN-оптимизированные эндпоинты ---
 
 // Главный эндпоинт для получения тайлов с CDN кэшированием
@@ -349,43 +392,258 @@ app.get('/api/tiles-cache/status', async (req, res) => {
   }
 });
 
-// --- Существующие эндпоинты (остаются без изменений) ---
-
-app.post('/register', async (req, res) => {
-  // ... существующий код без изменений
+// Эндпоинт для проверки использования БД
+app.get('/api/db-usage', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        pg_size_pretty(pg_database_size(current_database())) as db_size,
+        (SELECT COUNT(*) FROM tiles_caches) as tiles_count,
+        (SELECT COUNT(*) FROM user_marks) as marks_count
+    `);
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/users/register', async (req, res) => {
-  // ... существующий код без изменений
+// Эндпоинт для очистки старых данных
+app.post('/api/cleanup', async (req, res) => {
+  try {
+    // Очистка старых данных
+    await pool.query(`
+      DELETE FROM tiles_caches 
+      WHERE last_updated < NOW() - INTERVAL '7 days'
+    `);
+    
+    await pool.query(`
+      DELETE FROM user_marks 
+      WHERE created_at < NOW() - INTERVAL '30 days'
+    `);
+    
+    res.json({ success: true, message: "Cleanup completed" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/users', async (req, res) => {
-  // ... существующий код без изменений
-});
+// --- Существующие эндпоинты (с обработкой ошибок) ---
 
-app.get('/users/:id', async (req, res) => {
-  // ... существующий код без изменений
-});
+app.post('/register', withDatabaseErrorHandling(async (req, res) => {
+  const { telegram_id, first_name, last_name, username, language_code, is_premium } = req.body;
 
-app.post('/notify', async (req, res) => {
-  // ... существующий код без изменений
-});
+  if (!telegram_id || !first_name) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing required fields: telegram_id and first_name are required' 
+    });
+  }
 
-app.get('/api/marks/:userId', async (req, res) => {
-  // ... существующий код без изменений
-});
+  const query = `
+    INSERT INTO users (telegram_id, first_name, last_name, username, language_code, is_premium)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (telegram_id) 
+    DO UPDATE SET
+      first_name = EXCLUDED.first_name,
+      last_name = EXCLUDED.last_name,
+      username = EXCLUDED.username,
+      language_code = EXCLUDED.language_code,
+      is_premium = EXCLUDED.is_premium,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING *;
+  `;
 
-app.post('/api/marks', async (req, res) => {
-  // ... существующий код без изменений
-});
+  const values = [
+    telegram_id, 
+    first_name, 
+    last_name || null, 
+    username || null, 
+    language_code || 'ru',
+    is_premium || false
+  ];
+  const result = await pool.query(query, values);
 
-app.post('/api/tiles-cache', async (req, res) => {
-  // ... существующий код без изменений
-});
+  res.status(200).json({ success: true, user: result.rows[0] });
+}));
 
-app.get('/api/proxy/tile-info', async (req, res) => {
-  // ... существующий код без изменений
-});
+app.post('/api/users/register', withDatabaseErrorHandling(async (req, res) => {
+  const { telegram_id, first_name, last_name, username, language_code, is_premium } = req.body;
+
+  if (!telegram_id || !first_name) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing required fields: telegram_id and first_name are required' 
+    });
+  }
+
+  const query = `
+    INSERT INTO users (telegram_id, first_name, last_name, username, language_code, is_premium)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (telegram_id) 
+    DO UPDATE SET
+      first_name = EXCLUDED.first_name,
+      last_name = EXCLUDED.last_name,
+      username = EXCLUDED.username,
+      language_code = EXCLUDED.language_code,
+      is_premium = EXCLUDED.is_premium,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING *;
+  `;
+
+  const values = [
+    telegram_id, 
+    first_name, 
+    last_name || null, 
+    username || null, 
+    language_code || 'ru',
+    is_premium || false
+  ];
+  const result = await pool.query(query, values);
+
+  res.status(200).json({ success: true, user: result.rows[0] });
+}));
+
+app.get('/users', withDatabaseErrorHandling(async (req, res) => {
+  const result = await pool.query('SELECT telegram_id FROM users');
+  const userIds = result.rows.map(row => row.telegram_id);
+  res.status(200).json(userIds);
+}));
+
+app.get('/users/:id', withDatabaseErrorHandling(async (req, res) => {
+  const userId = req.params.id;
+  const result = await pool.query('SELECT * FROM users WHERE telegram_id = $1', [userId]);
+  
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  
+  res.status(200).json(result.rows[0]);
+}));
+
+app.post('/notify', withDatabaseErrorHandling(async (req, res) => {
+  const { user_id, tile_id, action, comment } = req.body;
+  console.log(`Notification: User ${user_id} performed ${action} on tile ${tile_id} with comment: ${comment}`);
+  res.status(200).json({ success: true });
+}));
+
+app.get('/api/marks/:userId', withDatabaseErrorHandling(async (req, res) => {
+  const userId = req.params.userId;
+  const result = await pool.query(
+    'SELECT tile_id, mark_type, comment FROM user_marks WHERE user_id = $1', 
+    [userId]
+  );
+  res.status(200).json(result.rows);
+}));
+
+app.post('/api/marks', withDatabaseErrorHandling(async (req, res) => {
+  const { user_id, tile_id, mark_type, comment } = req.body;
+  
+  if (!user_id || !tile_id || !mark_type) {
+    return res.status(400).json({ error: 'Missing required fields: user_id, tile_id, mark_type' });
+  }
+
+  let query, values;
+  if (mark_type === 'clear') {
+    query = 'DELETE FROM user_marks WHERE user_id = $1 AND tile_id = $2';
+    values = [user_id, tile_id];
+  } else {
+    query = `
+      INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id, tile_id, mark_type)
+      DO UPDATE SET comment = EXCLUDED.comment, created_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
+    values = [user_id, tile_id, mark_type, comment || null];
+  }
+  
+  const result = await pool.query(query, values);
+  
+  if (mark_type === 'clear' && result.rowCount === 0) {
+    res.status(200).json({ success: true, message: 'Mark cleared (was not present)' });
+  } else {
+    res.status(200).json({ success: true, mark: result.rows[0] || null });
+  }
+}));
+
+app.post('/api/tiles-cache', withDatabaseErrorHandling(async (req, res) => {
+  const { tiles: tilesData } = req.body; 
+  
+  if (!tilesData || typeof tilesData !== 'object') {
+    return res.status(400).json({ error: 'Invalid data format for tiles cache. Expected { tiles: { ... } }' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    
+    let updatedCount = 0;
+    for (const [tileIdStr, tileData] of Object.entries(tilesData)) {
+      const tileId = parseInt(tileIdStr, 10);
+      if (isNaN(tileId)) {
+        console.warn(`⚠️ Пропущен некорректный ID тайла при сохранении кэша: ${tileIdStr}`);
+        continue;
+      }
+      await client.query(
+        `
+        INSERT INTO tiles_caches (tile_id, data, last_updated)
+        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        ON CONFLICT (tile_id)
+        DO UPDATE SET data = EXCLUDED.data, last_updated = CURRENT_TIMESTAMP;
+        `,
+        [tileId, JSON.stringify(tileData)]
+      );
+      updatedCount++;
+    }
+    
+    await client.query('COMMIT');
+    res.status(200).json({ success: true, message: `Tiles cache updated. Updated records: ${updatedCount}` });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (client) client.release();
+  }
+}));
+
+app.get('/api/proxy/tile-info', withDatabaseErrorHandling(async (req, res) => {
+  console.log('📥 Прямой запрос к /api/proxy/tile-info. Обновляем кэш и возвращаем сырые данные.');
+  try {
+    // Принудительно обновляем кэш
+    const refreshSuccess = await refreshTileCache();
+    
+    // Получаем сырые данные от внешнего API для ответа
+    const response = await fetch(EXTERNAL_TILE_API_URL);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const rawData = await response.json();
+    
+    if (refreshSuccess) {
+      res.status(200).json({ ...rawData, message: "Data fetched and cache updated" });
+    } else {
+      res.status(200).json({ ...rawData, message: "Data fetched, but cache update failed", cache_update_success: false });
+    }
+  } catch (error) {
+    console.error('❌ Error in /api/proxy/tile-info:', error);
+    // Вместо ошибки 500, можно вернуть данные из кэша, если они есть
+    try {
+      const cacheResult = await pool.query('SELECT tile_id, data FROM tiles_caches LIMIT 1');
+      if (cacheResult.rows.length > 0) {
+        console.log("⚠️ Внешний API недоступен, возвращаем данные из кэша как запасной вариант.");
+        const tilesObject = {};
+        cacheResult.rows.forEach(row => {
+          tilesObject[row.tile_id] = { id_tile: row.tile_id, ...JSON.parse(row.data) };
+        });
+        return res.status(200).json({ tiles: tilesObject, message: "External API failed, data from cache", from_cache: true });
+      }
+    } catch (cacheError) {
+      console.error("❌ Ошибка при попытке получить данные из кэша как запасной вариант:", cacheError);
+    }
+    res.status(500).json({ error: 'Failed to fetch proxy tile info', details: error.message });
+  }
+}));
 
 // --- Health checks ---
 app.get('/health', (req, res) => {
@@ -419,6 +677,40 @@ app.get('/health/db', async (req, res) => {
 });
 
 // --- Запуск сервера ---
+
+// Автоочистка старых данных
+setInterval(async () => {
+  try {
+    // Очищаем кэш тайлов старше 7 дней
+    await pool.query(`
+      DELETE FROM tiles_caches 
+      WHERE last_updated < NOW() - INTERVAL '7 days'
+    `);
+    
+    // Очищаем старые метки пользователей
+    await pool.query(`
+      DELETE FROM user_marks 
+      WHERE created_at < NOW() - INTERVAL '30 days'
+    `);
+    
+    console.log('✅ Автоочистка данных выполнена');
+  } catch (error) {
+    console.error('❌ Ошибка автоочистки:', error);
+  }
+}, 24 * 60 * 60 * 1000); // Каждые 24 часа
+
+// Мониторинг памяти
+setInterval(() => {
+  const used = process.memoryUsage();
+  const memoryUsage = {
+    rss: Math.round(used.rss / 1024 / 1024) + 'MB',
+    heapTotal: Math.round(used.heapTotal / 1024 / 1024) + 'MB',
+    heapUsed: Math.round(used.heapUsed / 1024 / 1024) + 'MB',
+    external: Math.round(used.external / 1024 / 1024) + 'MB'
+  };
+  console.log('Memory usage:', memoryUsage);
+}, 30000); // Каждые 30 секунд
+
 app.listen(port, async () => {
   console.log(`🚀 genesis-map-api server is running on port ${port}`);
   console.log(`🌐 CORS enabled for: ${CORS_ORIGIN}`);
@@ -460,14 +752,5 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
-
-// Мониторинг памяти
-setInterval(() => {
-  const used = process.memoryUsage();
-  console.log(
-    `Memory usage: RSS ${Math.round(used.rss / 1024 / 1024)}MB, ` +
-    `Heap ${Math.round(used.heapUsed / 1024 / 1024)}MB/${Math.round(used.heapTotal / 1024 / 1024)}MB`
-  );
-}, 60000); // Каждую минуту
 
 export default app;
