@@ -15,8 +15,8 @@ const port = process.env.PORT || 3000;
 // --- Конфигурация ---
 // ИСПРАВЛЕНО: Убраны лишние пробелы
 const CORS_ORIGIN = 'https://genesis-data.onrender.com';
-// ИСПРАВЛЕНО: Правильный URL для получения ВСЕХ тайлов
-const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php?all_info=1';
+// ИСПРАВЛЕНО: Правильный URL для получения ВСЕХ тайлов, как подтверждено вами
+const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут
 const CDN_CACHE_MAX_AGE = 3600; // 1 час для CDN
 const BROWSER_CACHE_MAX_AGE = 300; // 5 минут для браузера
@@ -554,40 +554,6 @@ app.get('/api/tiles-cache', async (req, res) => {
   }
 });
 
-// Эндпоинт для принудительного обновления кэша (без CDN кэширования)
-app.get('/api/tiles-cache/refresh', async (req, res) => {
-  try {
-    console.log('🔄 Принудительное обновление кэша тайлов');
-    
-    // Отключаем кэширование для этого эндпоинта
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
-    
-    const success = await refreshTileCache();
-    
-    if (success) {
-      res.status(200).json({ 
-        success: true, 
-        message: 'Cache refreshed successfully',
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      res.status(500).json({ 
-        success: false, 
-        error: 'Cache refresh failed',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    console.error('❌ Error forcing cache refresh:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
 // Проксирование запроса к внешнему источнику тайлов или получение из БД
 app.get('/api/proxy/tile-info', withDatabaseErrorHandling(async (req, res) => {
   console.log('📥 Прямой запрос к /api/proxy/tile-info. Обновляем кэш и возвращаем сырые данные.');
@@ -698,6 +664,7 @@ setInterval(() => {
 app.listen(port, async () => {
   console.log(`🚀 genesis-map-api server is running on port ${port}`);
   console.log(`🌐 CORS enabled for: ${CORS_ORIGIN}`);
+  console.log(`📡 External Tile API URL: ${EXTERNAL_TILE_API_URL}`);
   console.log(`💾 CDN cache max-age: ${CDN_CACHE_MAX_AGE} seconds`);
   
   await initDatabase();
