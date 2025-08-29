@@ -1,32 +1,53 @@
 {
   "name": "genesis-war-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for GENESIS WAR",
+  "description": "Telegram bot for GENESIS WAR with API services",
   "type": "module",
   "main": "GENESIS_LAUNCHER.js",
   "scripts": {
     "start": "node GENESIS_LAUNCHER.js",
     "start:api": "node index.js",
     "dev": "nodemon GENESIS_LAUNCHER.js",
-    "dev:api": "nodemon index.js"
+    "dev:api": "nodemon index.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:api\"",
+    "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "dotenv": "^16.0.0",
     "node-telegram-bot-api": "^0.61.0",
     "@octokit/rest": "^20.0.0",
     "json5": "^2.2.3",
-    "pg": "^8.11.0",
+    "pg": "^8.11.3",
     "cors": "^2.8.5",
-    "node-fetch": "^2.6.11",
+    "node-fetch": "^2.7.0",
     "compression": "^1.7.4",
-    "helmet": "^7.0.0",
-    "express-rate-limit": "^6.7.0"
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.3",
+    "axios": "^1.5.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "concurrently": "^8.2.2"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "game",
+    "map",
+    "api",
+    "postgresql"
+  ],
+  "author": "Genesis Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Metaboom4304/genesis-war-bot"
+  },
+  "bugs": {
+    "url": "https://github.com/Metaboom4304/genesis-war-bot/issues"
   }
 }
