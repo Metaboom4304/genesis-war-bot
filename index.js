@@ -13,7 +13,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Конфигурация
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://your-frontend-domain.com';
+const CORS_ORIGIN = 'https://genesis-data.onrender.com';
 const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут
 const MAX_TILES_PER_REQUEST = 2000; // Максимум тайлов за один запрос
@@ -54,6 +54,32 @@ const pool = new Pool({
 // Вспомогательные функции
 async function initDatabase() {
   try {
+    // Таблица пользователей
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        telegram_id BIGINT PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        username TEXT,
+        language_code TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Таблица меток пользователей
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_marks (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,
+        tile_id INTEGER NOT NULL,
+        mark_type TEXT NOT NULL,
+        comment TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, tile_id, mark_type)
+      );
+    `);
+
     // Основная таблица тайлов
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tiles (
@@ -79,8 +105,13 @@ async function initDatabase() {
     `);
 
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_tiles_geom 
-      ON tiles USING GIST (ST_MakePoint(lng, lat));
+      CREATE INDEX IF NOT EXISTS idx_user_marks_user_id 
+      ON user_marks(user_id);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_marks_tile_id 
+      ON user_marks(tile_id);
     `);
 
     console.log('✅ Database tables and indexes initialized');
@@ -163,6 +194,105 @@ async function refreshTileCache() {
 }
 
 // API Endpoints
+
+// Регистрация пользователя
+app.post('/api/users/register', async (req, res) => {
+  try {
+    const { telegram_id, first_name, last_name, username, language_code } = req.body;
+
+    if (!telegram_id || !first_name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: telegram_id and first_name are required' 
+      });
+    }
+
+    const query = `
+      INSERT INTO users (telegram_id, first_name, last_name, username, language_code)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (telegram_id) 
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        username = EXCLUDED.username,
+        language_code = EXCLUDED.language_code,
+        updated_at = NOW()
+      RETURNING *;
+    `;
+
+    const values = [
+      telegram_id, 
+      first_name, 
+      last_name || null, 
+      username || null, 
+      language_code || 'ru'
+    ];
+    
+    const result = await pool.query(query, values);
+    res.status(200).json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('Error registering user:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Database error',
+      message: error.message
+    });
+  }
+});
+
+// Получение меток пользователя
+app.get('/api/marks/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const result = await pool.query(
+      'SELECT tile_id, mark_type, comment FROM user_marks WHERE user_id = $1', 
+      [userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error(`Error fetching marks for user ${userId}:`, error);
+    res.status(500).json({ error: 'Failed to fetch marks' });
+  }
+});
+
+// Сохранение/обновление метки пользователя
+app.post('/api/marks', async (req, res) => {
+  try {
+    const { user_id, tile_id, mark_type, comment } = req.body;
+    
+    if (!user_id || !tile_id || !mark_type) {
+       return res.status(400).json({ error: 'Missing required fields: user_id, tile_id, mark_type' });
+    }
+
+    let query, values;
+    if (mark_type === 'clear') {
+        query = 'DELETE FROM user_marks WHERE user_id = $1 AND tile_id = $2';
+        values = [user_id, tile_id];
+    } else {
+        query = `
+            INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id, tile_id, mark_type)
+            DO UPDATE SET comment = EXCLUDED.comment, created_at = NOW()
+            RETURNING *;
+        `;
+        values = [user_id, tile_id, mark_type, comment || null];
+    }
+    
+    const result = await pool.query(query, values);
+    
+    if (mark_type === 'clear' && result.rowCount === 0) {
+         res.status(200).json({ success: true, message: 'Mark cleared (was not present)' });
+    } else {
+        res.status(200).json({ success: true, mark: result.rows[0] || null });
+    }
+  } catch (error) {
+    console.error(`Error saving mark for user ${user_id} on tile ${tile_id}:`, error);
+    res.status(500).json({ error: 'Failed to save mark', details: error.message });
+  }
+});
+
+// Получение тайлов в границах
 app.get('/api/tiles/bounds', async (req, res) => {
   try {
     const { west, south, east, north, zoom, limit = 1000 } = req.query;
@@ -217,6 +347,7 @@ app.get('/api/tiles/bounds', async (req, res) => {
   }
 });
 
+// Получение количества тайлов
 app.get('/api/tiles/count', async (req, res) => {
   try {
     const result = await pool.query('SELECT COUNT(*) as count FROM tiles');
@@ -230,6 +361,7 @@ app.get('/api/tiles/count', async (req, res) => {
   }
 });
 
+// Обновление кэша тайлов
 app.post('/api/cache/refresh', async (req, res) => {
   try {
     const success = await refreshTileCache();
