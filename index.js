@@ -37,11 +37,20 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 
 // Настройка CORS для разрешения запросов с фронтенда
+// Логируем каждый запрос для отладки CORS
+app.use((req, res, next) => {
+  // console.log(`--- Incoming Request: ${req.method} ${req.path} ---`);
+  // console.log('Origin:', req.get('Origin'));
+  // console.log('Headers:', req.headers);
+  next();
+});
+
 app.use(cors({
-  origin: CORS_ORIGIN,
+  origin: CORS_ORIGIN, // Должно строго соответствовать origin фронтенда
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Accept']
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'] // Если используются для пагинации
 }));
 
 // Парсинг JSON в теле запроса
