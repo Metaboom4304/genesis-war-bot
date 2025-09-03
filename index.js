@@ -12,70 +12,55 @@ import rateLimit from 'express-rate-limit';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Конфигурация ---
-// ВАЖНО: Убраны пробелы в конце строк
-const CORS_ORIGIN = 'https://genesis-data.onrender.com'; // Исправлено: пробелы убраны
-const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php'; // Исправлено: пробелы убраны
+// Исправлено: Убраны пробелы в конфигурации
+const CORS_ORIGIN = 'https://genesis-data.onrender.com'; // Исправлено
+const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php'; // Исправлено
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут
 const MAX_TILES_PER_REQUEST = 2000; // Максимум тайлов за один запрос
 
-// --- Middleware ---
+// Middleware
+app.set('trust proxy', 1); // Исправлено: для правильной работы с прокси Render
+
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 
-// Сжатие ответов для уменьшения трафика
 app.use(compression({ level: 6 }));
 
-// Ограничение количества запросов для защиты API
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 1000, // максимум 1000 запросов с одного IP
-  message: 'Слишком много запросов, попробуйте позже'
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  message: 'Слишком много запросов, попробуйте позже',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', apiLimiter);
 
-// Настройка CORS для разрешения запросов с фронтенда
-// Логируем каждый запрос для отладки CORS
-app.use((req, res, next) => {
-  // console.log(`--- Incoming Request: ${req.method} ${req.path} ---`);
-  // console.log('Origin:', req.get('Origin'));
-  // console.log('Headers:', req.headers);
-  next();
-});
-
+// Исправлено: Настройки CORS
 app.use(cors({
-  origin: CORS_ORIGIN, // Должно строго соответствовать origin фронтенда
+  origin: CORS_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range'] // Если используются для пагинации
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 
-// Парсинг JSON в теле запроса
 app.use(express.json({ limit: '50mb' }));
 
-// --- Подключение к базе данных PostgreSQL (Neon) ---
+// База данных
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 20, // Максимальное количество клиентов в пуле
-  idleTimeoutMillis: 30000, // Время простоя перед закрытием клиента (30 сек)
-  connectionTimeoutMillis: 10000, // Время ожидания подключения (10 сек)
-  // В продакшене требуется SSL
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// --- Вспомогательные функции ---
-
-/**
- * Инициализирует структуру базы данных: создает таблицы и индексы, если их еще нет.
- */
+// Вспомогательные функции
 async function initDatabase() {
   try {
-    console.log('🔧 Инициализация структуры базы данных...');
-
-    // Таблица пользователей Telegram
+    // Таблица пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         telegram_id BIGINT PRIMARY KEY,
@@ -88,57 +73,65 @@ async function initDatabase() {
       );
     `);
 
-    // Таблица пользовательских меток на тайлах
+    // Таблица меток пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS user_marks (
         id SERIAL PRIMARY KEY,
         user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,
         tile_id INTEGER NOT NULL,
-        mark_type TEXT NOT NULL, -- 'ally', 'enemy', 'favorite'
+        mark_type TEXT NOT NULL,
         comment TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
-        -- Уникальное ограничение предотвращает дубликаты
-        UNIQUE(user_id, tile_id, mark_type) 
+        UNIQUE(user_id, tile_id, mark_type)
       );
     `);
 
-    // Основная таблица кэшированных данных тайлов
+    // Основная таблица тайлов
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tiles (
         id SERIAL PRIMARY KEY,
         tile_id INTEGER UNIQUE NOT NULL,
         lng DOUBLE PRECISION NOT NULL,
         lat DOUBLE PRECISION NOT NULL,
-        data JSONB NOT NULL, -- Полные данные тайла в формате JSON
+        data JSONB NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
 
-    // Индексы для ускорения поиска
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tiles_lng_lat ON tiles(lng, lat);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tiles_tile_id ON tiles(tile_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_marks_user_id ON user_marks(user_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_marks_tile_id ON user_marks(tile_id);`);
+    // Индексы для быстрого поиска
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_tiles_lng_lat 
+      ON tiles(lng, lat);
+    `);
 
-    console.log('✅ Структура базы данных инициализирована');
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_tiles_tile_id 
+      ON tiles(tile_id);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_marks_user_id 
+      ON user_marks(user_id);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_marks_tile_id 
+      ON user_marks(tile_id);
+    `);
+
+    console.log('✅ Database tables and indexes initialized');
   } catch (error) {
-    console.error('❌ Ошибка инициализации базы данных:', error);
+    console.error('❌ Error initializing database:', error);
   }
 }
 
-/**
- * Обновляет локальный кэш тайлов, загружая данные с внешнего API.
- * @returns {Promise<boolean>} true, если обновление прошло успешно, иначе false.
- */
 async function refreshTileCache() {
-  console.log('🔄 Начало обновления кэша тайлов...');
+  console.log('🔄 Starting tile cache refresh...');
   
   try {
-    // --- 1. Загрузка данных с внешнего сервера ---
-    console.log(`📥 Запрос данных у внешнего API: ${EXTERNAL_TILE_API_URL}`);
     const response = await fetch(EXTERNAL_TILE_API_URL, {
-      timeout: 60000, // Таймаут 60 секунд
+      timeout: 60000,
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Genesis-Map-API/1.0'
@@ -149,53 +142,40 @@ async function refreshTileCache() {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const rawData = await response.json();
-    // Предполагаем, что данные могут быть в формате {tiles: {...}} или сразу {...}
-    const tilesData = rawData.tiles || rawData;
+    const data = await response.json();
+    const tiles = data.tiles || data;
     
-    if (!tilesData || typeof tilesData !== 'object') {
-      throw new Error('Неверный формат данных тайлов от внешнего API');
+    if (!tiles || typeof tiles !== 'object') {
+      throw new Error('Invalid tile data format');
     }
 
-    const tileEntries = Object.entries(tilesData);
-    console.log(`📥 Получено ${tileEntries.length} тайлов от внешнего API`);
+    const tileEntries = Object.entries(tiles);
+    console.log(`📥 Fetched ${tileEntries.length} tiles from external API`);
 
-    // --- 2. Пакетная вставка/обновление в базу данных ---
-    const batchSize = 1000; // Размер пакета для оптимизации
+    // Пакетная обработка для эффективности
+    const batchSize = 1000;
     let processed = 0;
 
     for (let i = 0; i < tileEntries.length; i += batchSize) {
       const batch = tileEntries.slice(i, i + batchSize);
-      
-      // Подготавливаем данные для пакетного запроса
-      const values = []; // Плоский массив значений для placeholder'ов
-      const valuePlaceholders = []; // Массив строк placeholder'ов для SQL
+      const values = [];
+      const valuePlaceholders = [];
 
       batch.forEach(([tileIdStr, tileData], index) => {
-        const tileId = parseInt(tileIdStr, 10);
-        if (isNaN(tileId)) {
-            console.warn(`⚠️ Пропущен тайл с некорректным ID: ${tileIdStr}`);
-            return;
-        }
+        const tileId = parseInt(tileIdStr);
+        if (isNaN(tileId)) return;
 
         const lng = parseFloat(tileData.lng) || 0;
         const lat = parseFloat(tileData.lat) || 0;
         
-        // Рассчитываем смещение для placeholder'ов в этом пакете
-        // У нас 4 значения на запись: tile_id, lng, lat, data
-        const baseIndex = index * 4; 
-        
-        // Добавляем значения в плоский массив
+        // Исправлено: правильное количество placeholder'ов
+        const baseIndex = index * 4;
         values.push(tileId, lng, lat, JSON.stringify(tileData));
-        
-        // Создаем строку placeholder'ов для этой записи
-        // Пример: ($1, $2, $3, $4)
         valuePlaceholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4})`);
       });
 
-      // Если в пакете есть корректные данные, выполняем запрос
       if (values.length > 0) {
-        // Формируем SQL-запрос для пакетной вставки
+        // Исправлено: правильный запрос с 4 столбцами
         const query = `
           INSERT INTO tiles (tile_id, lng, lat, data)
           VALUES ${valuePlaceholders.join(', ')}
@@ -204,40 +184,34 @@ async function refreshTileCache() {
             lng = EXCLUDED.lng,
             lat = EXCLUDED.lat,
             data = EXCLUDED.data,
-            updated_at = NOW() -- Обновляем время изменения
+            updated_at = NOW()
         `;
 
-        // Выполняем запрос с подготовленными значениями
         await pool.query(query, values);
         processed += batch.length;
-        console.log(`✅ Обработано ${processed}/${tileEntries.length} тайлов`);
+        console.log(`✅ Processed ${processed}/${tileEntries.length} tiles`);
       }
     }
 
-    console.log(`🎉 Обновление кэша завершено: ${processed} тайлов обновлено`);
+    console.log(`🎉 Cache refresh completed: ${processed} tiles updated`);
     return true;
   } catch (error) {
-    console.error('❌ Ошибка обновления кэша:', error.message);
-    // Не останавливаем сервер, просто сообщаем об ошибке
-    return false; 
+    console.error('❌ Cache refresh failed:', error.message);
+    return false;
   }
 }
 
-// --- API Endpoints ---
+// API Endpoints
 
-/**
- * POST /api/users/register
- * Регистрирует или обновляет информацию о пользователе Telegram.
- */
+// Регистрация пользователя
 app.post('/api/users/register', async (req, res) => {
   try {
     const { telegram_id, first_name, last_name, username, language_code } = req.body;
 
-    // Базовая валидация
     if (!telegram_id || !first_name) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Отсутствуют обязательные поля: telegram_id и first_name' 
+        error: 'Missing required fields: telegram_id and first_name are required' 
       });
     }
 
@@ -265,19 +239,17 @@ app.post('/api/users/register', async (req, res) => {
     const result = await pool.query(query, values);
     res.status(200).json({ success: true, user: result.rows[0] });
   } catch (error) {
-    console.error('Ошибка регистрации пользователя:', error);
+    console.error('Error registering user:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Ошибка базы данных',
+      error: 'Database error',
       message: error.message
     });
   }
 });
 
-/**
- * GET /api/marks/:userId
- * Получает все метки пользователя.
- */
+// Получение меток пользователя
+// Исправлено: правильная переменная в catch блоке
 app.get('/api/marks/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -287,72 +259,54 @@ app.get('/api/marks/:userId', async (req, res) => {
     );
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error(`Ошибка получения меток для пользователя ${userId}:`, error);
-    res.status(500).json({ error: 'Не удалось получить метки' });
+    // Исправлено: используем req.params.userId вместо несуществующей переменной
+    console.error(`Error fetching marks for user ${req.params.userId}:`, error);
+    res.status(500).json({ error: 'Failed to fetch marks' });
   }
 });
 
-/**
- * POST /api/marks
- * Создает, обновляет или удаляет метку пользователя на тайле.
- */
+// Сохранение/обновление метки пользователя
 app.post('/api/marks', async (req, res) => {
   try {
     const { user_id, tile_id, mark_type, comment } = req.body;
     
-    // Валидация
     if (!user_id || !tile_id || !mark_type) {
-       return res.status(400).json({ 
-        success: false,
-        error: 'Отсутствуют обязательные поля: user_id, tile_id, mark_type' 
-       });
+       return res.status(400).json({ error: 'Missing required fields: user_id, tile_id, mark_type' });
     }
 
-    let query, values, result;
-
+    let query, values;
     if (mark_type === 'clear') {
-        // Удаление метки
         query = 'DELETE FROM user_marks WHERE user_id = $1 AND tile_id = $2';
         values = [user_id, tile_id];
-        result = await pool.query(query, values);
-        res.status(200).json({ 
-          success: true, 
-          message: result.rowCount > 0 ? 'Метка удалена' : 'Метка не найдена для удаления' 
-        });
     } else {
-        // Создание или обновление метки
         query = `
             INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (user_id, tile_id, mark_type)
-            DO UPDATE SET 
-              comment = EXCLUDED.comment, 
-              created_at = NOW() -- Обновляем время создания/изменения
+            DO UPDATE SET comment = EXCLUDED.comment, created_at = NOW()
             RETURNING *;
         `;
         values = [user_id, tile_id, mark_type, comment || null];
-        result = await pool.query(query, values);
-        res.status(200).json({ success: true, mark: result.rows[0] });
+    }
+    
+    const result = await pool.query(query, values);
+    
+    if (mark_type === 'clear' && result.rowCount === 0) {
+         res.status(200).json({ success: true, message: 'Mark cleared (was not present)' });
+    } else {
+        res.status(200).json({ success: true, mark: result.rows[0] || null });
     }
   } catch (error) {
-    console.error(`Ошибка сохранения метки для пользователя ${req.body.user_id} на тайле ${req.body.tile_id}:`, error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Не удалось сохранить метку', 
-      details: error.message 
-    });
+    console.error(`Error saving mark for user ${req.body.user_id} on tile ${req.body.tile_id}:`, error);
+    res.status(500).json({ error: 'Failed to save mark', details: error.message });
   }
 });
 
-/**
- * GET /api/tiles/bounds
- * Получает тайлы в пределах заданных географических границ.
- */
+// Получение тайлов в границах
 app.get('/api/tiles/bounds', async (req, res) => {
   try {
     const { west, south, east, north, limit = 1000 } = req.query;
     
-    // Валидация и парсинг параметров
     const bounds = {
       west: parseFloat(west),
       south: parseFloat(south),
@@ -360,11 +314,12 @@ app.get('/api/tiles/bounds', async (req, res) => {
       north: parseFloat(north)
     };
 
+    // Проверка валидности параметров
     if (isNaN(bounds.west) || isNaN(bounds.south) || isNaN(bounds.east) || isNaN(bounds.north)) {
-       return res.status(400).json({
-         success: false,
-         error: 'Некорректные параметры границ: west, south, east, north должны быть числами'
-       });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid bounds parameters'
+      });
     }
 
     const queryLimit = Math.min(parseInt(limit), MAX_TILES_PER_REQUEST);
@@ -383,12 +338,10 @@ app.get('/api/tiles/bounds', async (req, res) => {
       queryLimit
     ]);
 
-    // Преобразуем данные из БД в удобный формат
     const tiles = result.rows.map(row => ({
       id: row.tile_id,
       lng: row.lng,
       lat: row.lat,
-      // Если data - строка JSON, парсим её, иначе используем как есть
       ...(typeof row.data === 'string' ? JSON.parse(row.data) : row.data)
     }));
 
@@ -396,71 +349,51 @@ app.get('/api/tiles/bounds', async (req, res) => {
       success: true,
       tiles,
       count: tiles.length,
+      total: result.rowCount,
       bounds,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Ошибка запроса тайлов по границам:', error);
+    console.error('Bounds query error:', error);
     res.status(500).json({
       success: false,
-      error: 'Не удалось получить тайлы',
+      error: 'Failed to fetch tiles',
       message: error.message
     });
   }
 });
 
-/**
- * GET /api/tiles/count
- * Возвращает общее количество тайлов в кэше.
- */
+// Получение количества тайлов
 app.get('/api/tiles/count', async (req, res) => {
   try {
     const result = await pool.query('SELECT COUNT(*) as count FROM tiles');
     res.json({
       success: true,
-      count: parseInt(result.rows[0].count, 10),
+      count: parseInt(result.rows[0].count),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Ошибка получения количества тайлов:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Не удалось получить количество тайлов',
-      message: error.message 
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-/**
- * POST /api/cache/refresh (Для ручного обновления, если нужно)
- * Принудительно запускает обновление кэша тайлов.
- */
+// Обновление кэша тайлов
 app.post('/api/cache/refresh', async (req, res) => {
   try {
-    console.log('🔄 Ручной запуск обновления кэша по запросу API...');
     const success = await refreshTileCache();
     res.json({ 
       success, 
-      message: success ? 'Кэш успешно обновлён' : 'Ошибка обновления кэша' 
+      message: success ? 'Cache refreshed successfully' : 'Cache refresh failed' 
     });
   } catch (error) {
-    console.error('Ошибка ручного обновления кэша:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Ошибка ручного обновления кэша',
-      message: error.message 
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-/**
- * GET /health
- * Проверка состояния API и подключения к БД.
- */
+// Health checks
 app.get('/health', async (req, res) => {
   try {
-    // Простой запрос к БД для проверки подключения
     await pool.query('SELECT 1');
     res.json({ 
       status: 'healthy', 
@@ -468,33 +401,20 @@ app.get('/health', async (req, res) => {
       memory: process.memoryUsage()
     });
   } catch (error) {
-    console.error('Health check failed:', error);
-    res.status(500).json({ 
-      status: 'unhealthy', 
-      error: error.message 
-    });
+    res.status(500).json({ status: 'unhealthy', error: error.message });
   }
 });
 
-// --- Запуск сервера ---
+// Запуск сервера
 app.listen(port, async () => {
-  console.log(`🚀 Сервер API запущен на порту ${port}`);
-  console.log(`🌐 CORS разрешён для: ${CORS_ORIGIN}`);
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`🌐 CORS enabled for: ${CORS_ORIGIN}`);
   
-  // Инициализируем БД и запускаем первоначальное обновление кэша
   await initDatabase();
-  const cacheSuccess = await refreshTileCache();
-  if (!cacheSuccess) {
-    console.warn('⚠️ Первоначальное обновление кэша не удалось. Сервер запущен, но данные могут быть неактуальны.');
-  }
+  await refreshTileCache();
   
-  // Запускаем периодическое обновление кэша
-  setInterval(async () => {
-    console.log('⏰ Запланированное обновление кэша...');
-    await refreshTileCache();
-  }, CACHE_TTL_MS);
-  
-  console.log(`⏰ Периодическое обновление кэша запланировано каждые ${CACHE_TTL_MS / 1000 / 60} минут.`);
+  // Автообновление кэша каждые 30 минут
+  setInterval(refreshTileCache, CACHE_TTL_MS);
 });
 
 export default app;
