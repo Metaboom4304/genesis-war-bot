@@ -435,7 +435,7 @@ app.get('/api/tiles/bounds', async (req, res) => {
     // --- ДОБАВЛЕНО: Строгая валидация данных ---
     const tiles = result.rows.map(row => {
       // Парсим JSON, если это строка
-      const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      const data = typeof row.data === 'string' ? JSON.parse(row.data) || {} : row.data;
       
       // Проверяем обязательные поля
       if (typeof data.lng === 'undefined' || typeof data.lat === 'undefined') {
