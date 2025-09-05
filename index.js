@@ -12,14 +12,15 @@ import rateLimit from 'express-rate-limit';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Исправлено: Настройки конфигурации ---
-// ВАЖНО: Убраны пробелы в конце строк
-const CORS_ORIGIN = 'https://genesis-data.onrender.com'; // Исправлено: убран пробел
-const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php'; // Исправлено: убран пробел
+// --- ИСПРАВЛЕНО: Пробелы в URL УДАЛЕНЫ ---
+const CORS_ORIGIN = 'https://genesis-data.onrender.com';
+const EXTERNAL_TILE_API_URL = 'https://back.genesis-of-ages.space/manage/get_tile_info.php';
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 минут
 const MAX_TILES_PER_REQUEST = 2000; // Максимум тайлов за один запрос
+const MIN_TILE_ID = 1;
+const MAX_TILE_ID = 1000000;
 
-// --- Исправлено: Middleware ---
+// --- ИСПРАВЛЕНО: Middleware ---
 // ВАЖНО: Включаем trust proxy для корректной работы за прокси Render и устранения ошибки rate-limit
 app.set('trust proxy', 1);
 
@@ -50,6 +51,9 @@ app.use(cors({
   exposedHeaders: ['Content-Range', 'X-Content-Range'] // Если используются для пагинации
 }));
 
+// Добавлено: Обработка OPTIONS для CORS preflight
+app.options('/api/*', cors());
+
 // Парсинг JSON в теле запроса
 app.use(express.json({ limit: '50mb' }));
 
@@ -59,8 +63,7 @@ const pool = new Pool({
   max: 20, // Максимальное количество клиентов в пуле
   idleTimeoutMillis: 30000, // Время простоя перед закрытием клиента (30 сек)
   connectionTimeoutMillis: 10000, // Время ожидания подключения (10 сек)
-  // В продакшене требуется SSL
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: process.env.NODE_ENV === 'production' ? true : false
 });
 
 // --- Вспомогательные функции ---
@@ -124,99 +127,127 @@ async function initDatabase() {
   }
 }
 
+// --- ДОБАВЛЕНО: Флаг блокировки для обновления кэша ---
+let isRefreshing = false;
+
 /**
  * Обновляет локальный кэш тайлов, загружая данные с внешнего API.
  * @returns {Promise<boolean>} true, если обновление прошло успешно, иначе false.
  */
 async function refreshTileCache() {
+  // --- ДОБАВЛЕНО: Блокировка одновременных обновлений ---
+  if (isRefreshing) {
+    console.log('🔄 Обновление кэша уже в процессе, пропускаем...');
+    return false;
+  }
+  
+  isRefreshing = true;
   console.log('🔄 Начало обновления кэша тайлов...');
   
   try {
     // --- 1. Загрузка данных с внешнего сервера ---
     console.log(`📥 Запрос данных у внешнего API: ${EXTERNAL_TILE_API_URL}`);
-    const response = await fetch(EXTERNAL_TILE_API_URL, {
-      timeout: 60000, // Таймаут 60 секунд
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Genesis-Map-API/1.0'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const rawData = await response.json();
-    // Предполагаем, что данные могут быть в формате {tiles: {...}} или сразу {...}
-    const tilesData = rawData.tiles || rawData;
     
-    if (!tilesData || typeof tilesData !== 'object') {
-      throw new Error('Неверный формат данных тайлов от внешнего API');
-    }
-
-    const tileEntries = Object.entries(tilesData);
-    console.log(`📥 Получено ${tileEntries.length} тайлов от внешнего API`);
-
-    // --- 2. Пакетная вставка/обновление в базу данных ---
-    const batchSize = 1000; // Размер пакета для оптимизации
-    let processed = 0;
-
-    for (let i = 0; i < tileEntries.length; i += batchSize) {
-      const batch = tileEntries.slice(i, i + batchSize);
+    // --- ДОБАВЛЕНО: Таймаут и обработка ошибок сети ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    
+    try {
+      const response = await fetch(EXTERNAL_TILE_API_URL, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Genesis-Map-API/1.0'
+        }
+      });
       
-      // Подготавливаем данные для пакетного запроса
-      const values = []; // Плоский массив значений для placeholder'ов
-      const valuePlaceholders = []; // Массив строк placeholder'ов для SQL
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
-      batch.forEach(([tileIdStr, tileData], index) => {
-        const tileId = parseInt(tileIdStr, 10);
-        if (isNaN(tileId)) {
+      const rawData = await response.json();
+      // Предполагаем, что данные могут быть в формате {tiles: {...}} или сразу {...}
+      const tilesData = rawData.tiles || rawData;
+      
+      if (!tilesData || typeof tilesData !== 'object') {
+        throw new Error('Неверный формат данных тайлов от внешнего API');
+      }
+
+      const tileEntries = Object.entries(tilesData);
+      console.log(`📥 Получено ${tileEntries.length} тайлов от внешнего API`);
+
+      // --- 2. Пакетная вставка/обновление в базу данных ---
+      const batchSize = 1000; // Размер пакета для оптимизации
+      let processed = 0;
+
+      for (let i = 0; i < tileEntries.length; i += batchSize) {
+        const batch = tileEntries.slice(i, i + batchSize);
+        
+        // Подготавливаем данные для пакетного запроса
+        const values = []; // Плоский массив значений для placeholder'ов
+        const valuePlaceholders = []; // Массив строк placeholder'ов для SQL
+
+        batch.forEach(([tileIdStr, tileData], index) => {
+          const tileId = parseInt(tileIdStr, 10);
+          
+          // --- ДОБАВЛЕНО: Строгая валидация tileId ---
+          if (isNaN(tileId) || tileId < MIN_TILE_ID || tileId > MAX_TILE_ID) {
             console.warn(`⚠️ Пропущен тайл с некорректным ID: ${tileIdStr}`);
             return;
+          }
+
+          const lng = parseFloat(tileData.lng) || 0;
+          const lat = parseFloat(tileData.lat) || 0;
+          
+          // Добавляем значения в плоский массив
+          values.push(tileId, lng, lat, JSON.stringify(tileData));
+          
+          // Создаем строку placeholder'ов для этой записи
+          // ИСПРАВЛЕНО: Правильные индексы для placeholder'ов
+          const baseIndex = values.length - 3;
+          valuePlaceholders.push(`($${baseIndex}, $${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3})`);
+        });
+
+        // Если в пакете есть корректные данные, выполняем запрос
+        if (values.length > 0) {
+          // Формируем SQL-запрос для пакетной вставки
+          const query = `
+            INSERT INTO tiles (tile_id, lng, lat, data)
+            VALUES ${valuePlaceholders.join(', ')}
+            ON CONFLICT (tile_id) 
+            DO UPDATE SET 
+              lng = EXCLUDED.lng,
+              lat = EXCLUDED.lat,
+              data = EXCLUDED.data,
+              updated_at = NOW() -- Обновляем время изменения
+          `;
+
+          // Выполняем запрос с подготовленными значениями
+          await pool.query(query, values);
+          processed += batch.length;
+          console.log(`✅ Обработано ${processed}/${tileEntries.length} тайлов`);
         }
-
-        const lng = parseFloat(tileData.lng) || 0;
-        const lat = parseFloat(tileData.lat) || 0;
-        
-        // Рассчитываем смещение для placeholder'ов в этом пакете
-        // У нас 4 значения на запись: tile_id, lng, lat, data
-        const baseIndex = index * 4; 
-        
-        // Добавляем значения в плоский массив
-        values.push(tileId, lng, lat, JSON.stringify(tileData));
-        
-        // Создаем строку placeholder'ов для этой записи
-        // Пример: ($1, $2, $3, $4)
-        valuePlaceholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4})`);
-      });
-
-      // Если в пакете есть корректные данные, выполняем запрос
-      if (values.length > 0) {
-        // Формируем SQL-запрос для пакетной вставки
-        const query = `
-          INSERT INTO tiles (tile_id, lng, lat, data)
-          VALUES ${valuePlaceholders.join(', ')}
-          ON CONFLICT (tile_id) 
-          DO UPDATE SET 
-            lng = EXCLUDED.lng,
-            lat = EXCLUDED.lat,
-            data = EXCLUDED.data,
-            updated_at = NOW() -- Обновляем время изменения
-        `;
-
-        // Выполняем запрос с подготовленными значениями
-        await pool.query(query, values);
-        processed += batch.length;
-        console.log(`✅ Обработано ${processed}/${tileEntries.length} тайлов`);
       }
-    }
 
-    console.log(`🎉 Обновление кэша завершено: ${processed} тайлов обновлено`);
-    return true;
+      console.log(`🎉 Обновление кэша завершено: ${processed} тайлов обновлено`);
+      return true;
+    } catch (fetchError) {
+      if (fetchError.name === 'AbortError') {
+        console.error('❌ Запрос к внешнему API превысил таймаут (60 сек)');
+      } else {
+        console.error('❌ Ошибка сети при запросе к внешнему API:', fetchError.message);
+      }
+      return false;
+    }
   } catch (error) {
-    console.error('❌ Ошибка обновления кэша:', error.message);
+    console.error('❌ Критическая ошибка обновления кэша:', error.message);
     // Не останавливаем сервер, просто сообщаем об ошибке
     return false; 
+  } finally {
+    // --- ДОБАВЛЕНО: Сброс флага блокировки ---
+    isRefreshing = false;
   }
 }
 
@@ -274,18 +305,25 @@ app.post('/api/users/register', async (req, res) => {
 /**
  * GET /api/marks/:userId
  * Получает все метки пользователя.
- * Исправлено: правильная переменная в catch блоке.
  */
 app.get('/api/marks/:userId', async (req, res) => {
   try {
     const userId = req.params.userId; // Получаем userId из параметров URL
+    
+    // --- ДОБАВЛЕНО: Валидация userId ---
+    if (!/^\d+$/.test(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Некорректный формат ID пользователя' 
+      });
+    }
+    
     const result = await pool.query(
       'SELECT tile_id, mark_type, comment FROM user_marks WHERE user_id = $1', 
       [userId]
     );
     res.status(200).json(result.rows);
   } catch (error) {
-    // Исправлено: используем req.params.userId, а не несуществующую переменную userId
     console.error(`Ошибка получения меток для пользователя ${req.params.userId}:`, error);
     res.status(500).json({ error: 'Не удалось получить метки' });
   }
@@ -299,12 +337,23 @@ app.post('/api/marks', async (req, res) => {
   try {
     const { user_id, tile_id, mark_type, comment } = req.body;
     
+    // --- ДОБАВЛЕНО: Строгая валидация mark_type ---
+    const VALID_MARK_TYPES = ['ally', 'enemy', 'favorite'];
+    
     // Валидация
-    if (!user_id || !tile_id || !mark_type) {
+    if (!user_id || !tile_id || (!mark_type && mark_type !== 'clear')) {
        return res.status(400).json({ 
         success: false,
         error: 'Отсутствуют обязательные поля: user_id, tile_id, mark_type' 
        });
+    }
+    
+    // Дополнительная валидация
+    if (mark_type !== 'clear' && !VALID_MARK_TYPES.includes(mark_type)) {
+      return res.status(400).json({ 
+        success: false,
+        error: `Недопустимый тип метки. Допустимые: ${VALID_MARK_TYPES.join(', ')}` 
+      });
     }
 
     let query, values, result;
@@ -349,7 +398,7 @@ app.post('/api/marks', async (req, res) => {
  */
 app.get('/api/tiles/bounds', async (req, res) => {
   try {
-    const { west, south, east, north, limit = 1000 } = req.query;
+    const { west, south, east, north, limit = 1000, offset = 0 } = req.query;
     
     // Валидация и парсинг параметров
     const bounds = {
@@ -367,35 +416,61 @@ app.get('/api/tiles/bounds', async (req, res) => {
     }
 
     const queryLimit = Math.min(parseInt(limit), MAX_TILES_PER_REQUEST);
+    const queryOffset = Math.max(parseInt(offset), 0);
 
     const query = `
       SELECT tile_id, lng, lat, data
       FROM tiles 
       WHERE lng BETWEEN $1 AND $2 
         AND lat BETWEEN $3 AND $4
-      LIMIT $5
+      LIMIT $5 OFFSET $6
     `;
 
     const result = await pool.query(query, [
       bounds.west, bounds.east, 
       bounds.south, bounds.north,
-      queryLimit
+      queryLimit, queryOffset
     ]);
 
-    // Преобразуем данные из БД в удобный формат
-    const tiles = result.rows.map(row => ({
-      id: row.tile_id,
-      lng: row.lng,
-      lat: row.lat,
-      // Если data - строка JSON, парсим её, иначе используем как есть
-      ...(typeof row.data === 'string' ? JSON.parse(row.data) : row.data)
-    }));
+    // --- ДОБАВЛЕНО: Строгая валидация данных ---
+    const tiles = result.rows.map(row => {
+      // Парсим JSON, если это строка
+      const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      
+      // Проверяем обязательные поля
+      if (typeof data.lng === 'undefined' || typeof data.lat === 'undefined') {
+        return null;
+      }
+      
+      return {
+        id: row.tile_id,
+        lng: parseFloat(data.lng) || 0,
+        lat: parseFloat(data.lat) || 0,
+        has_owner: data.has_owner === 'true' ? 'true' : 'false'
+      };
+    }).filter(tile => tile !== null);
+
+    // --- ДОБАВЛЕНО: Подсчет общего количества для пагинации ---
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM tiles 
+      WHERE lng BETWEEN $1 AND $2 
+        AND lat BETWEEN $3 AND $4
+    `, [
+      bounds.west, bounds.east, 
+      bounds.south, bounds.north
+    ]);
+    
+    const totalCount = parseInt(countResult.rows[0].count, 10);
 
     res.json({
       success: true,
       tiles,
       count: tiles.length,
+      total: totalCount,
       bounds,
+      offset: queryOffset,
+      limit: queryLimit,
       timestamp: new Date().toISOString()
     });
 
