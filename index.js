@@ -5,7 +5,6 @@ import pkg from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import 'dotenv/config';
-import { Octokit } from '@octokit/rest';
 import jwt from 'jsonwebtoken';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -29,7 +28,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https://*"],
+      imgSrc: ["'self'", "", "https://*"],
       connectSrc: ["'self'", API_URL],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       frameSrc: ["'self'", "https://*.t.me", "https://*.telegram.org"]
