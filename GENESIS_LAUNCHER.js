@@ -70,8 +70,11 @@ bot.onText(/\/start\s+auth_(.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const requestId = match[1];
   
+  console.log(`🔍 Получен запрос аутентификации с request_id: ${requestId}`);
+  
   // Проверяем, существует ли запрос
   if (!authRequests.has(requestId)) {
+    console.log(`❌ Запрос на аутентификацию не найден: ${requestId}`);
     return bot.sendMessage(chatId, '❌ Запрос на аутентификацию не найден или устарел. Попробуйте войти снова.');
   }
   
@@ -80,8 +83,11 @@ bot.onText(/\/start\s+auth_(.+)/, async (msg, match) => {
   // Проверяем срок действия запроса
   if (Date.now() > expiresAt) {
     authRequests.delete(requestId);
+    console.log(`❌ Запрос на аутентификацию устарел: ${requestId}`);
     return bot.sendMessage(chatId, '❌ Запрос на аутентификацию устарел. Попробуйте войти снова.');
   }
+  
+  console.log(`✅ Запрос на аутентификацию подтвержден: ${requestId}`);
   
   const userId = msg.from.id;
   const firstName = msg.from.first_name;
@@ -120,6 +126,9 @@ ${authUrl}
 Ссылка действительна 5 минут.
     `;
     
+    console.log(`✅ Токен сгенерирован для пользователя ${userId}`);
+    console.log(`🔗 Ссылка для входа: ${authUrl}`);
+    
     await bot.sendMessage(
       chatId, 
       message,
@@ -138,6 +147,7 @@ ${authUrl}
     
     // Удаляем запрос из хранилища
     authRequests.delete(requestId);
+    console.log(`🧹 Запрос ${requestId} удален из хранилища`);
   } catch (error) {
     console.error('Auth confirmation error:', error);
     await bot.sendMessage(chatId, '❌ Ошибка при подтверждении аутентификации. Попробуйте позже.');
