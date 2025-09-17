@@ -193,10 +193,16 @@ async function broadcastAll(bot, message) {
 function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
   const isAdmin = String(uid) === ADMIN_ID;
   
+  // КРИТИЧЕСКИ ВАЖНО: Используем WebApp кнопку вместо текстовой!
+  const mapButton = [{
+    text: "🗺 Открыть карту",
+    web_app: { url: "https://genesis-data.onrender.com" }
+  }];
+  
   const baseButtons = [
     ['🤖 Инфо', '🛣 Дорожная карта'],
     ['🌐 Ссылки', '❓ Помощь'],
-    ['🗺 Карта']
+    mapButton
   ];
 
   const adminButtons = [
@@ -208,7 +214,11 @@ function sendReplyMenu(bot, chatId, uid, text = '📋 Меню:') {
   const keyboard = isAdmin ? [...baseButtons, ...adminButtons] : baseButtons;
 
   return bot.sendMessage(chatId, text, {
-    reply_markup: { keyboard, resize_keyboard: true }
+    reply_markup: { 
+      keyboard, 
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
   }).catch(console.error);
 }
 
