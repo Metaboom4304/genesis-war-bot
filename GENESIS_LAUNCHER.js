@@ -202,7 +202,7 @@ bot.on('callback_query', async (query) => {
   const userId = query.from.id;
   
   if (query.data === 'get_code') {
-    sendAccessCode(chatId, userId);
+    await sendAccessCode(chatId, userId);
     bot.answerCallbackQuery(query.id);
   } else if (query.data === 'open_map') {
     bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
@@ -276,17 +276,17 @@ ${code}
 Код действителен 5 минут. Скопируйте его и введите на сайте.
     `;
     
-    bot.sendMessage(chatId, message, {
+    await bot.sendMessage(chatId, message, {
       parse_mode: 'MarkdownV2',
       reply_markup: {
         inline_keyboard: [
           [{
             text: '🔄 Получить новый код',
-            callback_ 'get_code'
+            callback_data: 'get_code'
           }],
           [{
             text: '🗺 Открыть карту',
-            callback_ 'open_map'
+            callback_data: 'open_map'
           }]
         ]
       }
