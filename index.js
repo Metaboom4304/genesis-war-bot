@@ -20,6 +20,8 @@ const __dirname = dirname(__filename);
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://genesis-data.onrender.com';
 const API_URL = process.env.API_URL || 'https://genesis-map-api.onrender.com';
+const CODE_LIFETIME = 5 * 60 * 1000; // 5 минут
+const CODE_LENGTH = 6;
 
 // --- Инициализация Middleware ---
 app.use(helmet({
@@ -108,6 +110,29 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_tiles_tile_id ON tiles(tile_id);
     `);
     
+    // Таблица кодов доступа
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS access_codes (
+        code VARCHAR(6) PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        used BOOLEAN DEFAULT false
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_access_codes_created ON access_codes(created_at);
+    `);
+    
+    // Таблица токенов доступа
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS access_tokens (
+        token VARCHAR(15) PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        expires_at TIMESTAMP NOT NULL
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_access_tokens_expires ON access_tokens(expires_at);
+    `);
+    
     console.log('✅ Структура базы данных инициализирована');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error);
@@ -115,110 +140,203 @@ async function initDatabase() {
   }
 }
 
-// --- Аутентификация ---
-// Middleware для проверки аутентификации
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
+// --- Очистка старых данных ---
+async function cleanupOldCodes() {
+  try {
+    const cutoffTime = new Date(Date.now() - CODE_LIFETIME);
+    await pool.query(`
+      DELETE FROM access_codes WHERE created_at < $1
+    `, [cutoffTime]);
     
-    req.user = user;
-    next();
-  });
+    console.log('🧹 Старые коды очищены');
+  } catch (error) {
+    console.error('❌ Ошибка очистки старых кодов:', error);
+  }
 }
 
-// Эндпоинт для проверки токена
-app.post('/api/auth/verify', authenticateToken, (req, res) => {
-  res.json({ user: req.user });
-});
+async function cleanupOldTokens() {
+  try {
+    const cutoffTime = new Date();
+    await pool.query(`
+      DELETE FROM access_tokens WHERE expires_at < $1
+    `, [cutoffTime]);
+    
+    console.log('🧹 Старые токены очищены');
+  } catch (error) {
+    console.error('❌ Ошибка очистки старых токенов:', error);
+  }
+}
+
+// --- Инициализация периодической очистки ---
+cleanupOldCodes();
+cleanupOldTokens();
+
+setInterval(cleanupOldCodes, 10 * 60 * 1000); // Каждые 10 минут
+setInterval(cleanupOldTokens, 30 * 60 * 1000); // Каждые 30 минут
+
+// --- Функции ---
+// Генерация случайного кода
+function generateAccessCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString().substring(0, CODE_LENGTH);
+}
 
 // --- API Endpoints ---
-
-// Регистрация пользователя
-app.post('/api/users/register', async (req, res) => {
+// Эндпоинт для сохранения кода (вызывается ботом)
+app.post('/api/save-code', async (req, res) => {
+  const { code, userId } = req.body;
+  
+  if (!code || !userId) {
+    return res.status(400).json({ error: 'Отсутствуют обязательные параметры' });
+  }
+  
   try {
-    const { telegram_id, first_name, last_name, username, language_code } = req.body;
+    // Сохраняем код в БД
+    await pool.query(`
+      INSERT INTO access_codes (code, user_id)
+      VALUES ($1, $2)
+      ON CONFLICT (code) 
+      DO UPDATE SET 
+        user_id = EXCLUDED.user_id,
+        created_at = NOW(),
+        used = false
+    `, [code, userId]);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Ошибка сохранения кода:', error);
+    res.status(500).json({ error: 'Не удалось сохранить код' });
+  }
+});
 
-    // Базовая валидация
-    if (!telegram_id || !first_name) {
-      return res.status(400).json({ 
-        error: 'Отсутствуют обязательные поля: telegram_id и first_name' 
-      });
+// Эндпоинт для проверки кода (вызывается фронтендом)
+app.post('/api/verify-code', async (req, res) => {
+  const { code } = req.body;
+  
+  if (!code) {
+    return res.status(400).json({ error: 'Код не указан' });
+  }
+  
+  try {
+    // Проверяем код в БД
+    const result = await pool.query(`
+      SELECT * FROM access_codes 
+      WHERE code = $1
+    `, [code]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Код не найден' });
     }
-
-    const query = `
-      INSERT INTO users (id, first_name, last_name, username, language_code)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (id) 
-      DO UPDATE SET
-        first_name = EXCLUDED.first_name,
-        last_name = EXCLUDED.last_name,
-        username = EXCLUDED.username,
-        language_code = EXCLUDED.language_code
-      RETURNING *;
-    `;
-
-    const values = [
-      telegram_id, 
-      first_name, 
-      last_name || null, 
-      username || null, 
-      language_code || 'ru'
-    ];
     
-    const result = await pool.query(query, values);
+    const accessCode = result.rows[0];
+    const now = new Date();
+    const codeAge = now - new Date(accessCode.created_at);
     
-    // Создаем JWT токен
-    const token = jwt.sign(
-      { 
-        userId: result.rows[0].id,
-        firstName: result.rows[0].first_name,
-        lastName: result.rows[0].last_name,
-        username: result.rows[0].username
-      }, 
-      JWT_SECRET, 
-      { expiresIn: '7d' }
-    );
+    // Проверяем срок действия
+    if (codeAge > CODE_LIFETIME) {
+      await pool.query(`DELETE FROM access_codes WHERE code = $1`, [code]);
+      return res.status(401).json({ error: 'Код устарел' });
+    }
     
-    res.status(200).json({ 
-      token,
-      user: {
-        id: result.rows[0].id,
-        first_name: result.rows[0].first_name,
-        last_name: result.rows[0].last_name,
-        username: result.rows[0].username,
-        language_code: result.rows[0].language_code
-      }
+    // Проверяем, использован ли код
+    if (accessCode.used) {
+      return res.status(401).json({ error: 'Код уже использован' });
+    }
+    
+    // Помечаем код как использованный
+    await pool.query(`
+      UPDATE access_codes 
+      SET used = true 
+      WHERE code = $1
+    `, [code]);
+    
+    // Генерируем временный токен доступа (действителен 1 час)
+    const accessToken = Math.random().toString(36).substr(2, 15);
+    
+    // Сохраняем токен в БД
+    await pool.query(`
+      INSERT INTO access_tokens (token, user_id, expires_at)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (token) 
+      DO UPDATE SET 
+        user_id = EXCLUDED.user_id,
+        expires_at = EXCLUDED.expires_at
+    `, [accessToken, accessCode.user_id, new Date(Date.now() + 60 * 60 * 1000)]);
+    
+    res.json({ 
+      success: true,
+      accessToken,
+      expiresIn: 3600 // 1 час в секундах
     });
   } catch (error) {
-    console.error('Ошибка регистрации пользователя:', error);
-    res.status(500).json({ 
-      error: 'Ошибка базы данных',
-      message: error.message
-    });
+    console.error('Ошибка проверки кода:', error);
+    res.status(500).json({ error: 'Не удалось проверить код' });
+  }
+});
+
+// Эндпоинт для проверки токена доступа
+app.post('/api/check-access', async (req, res) => {
+  const { accessToken } = req.body;
+  
+  if (!accessToken) {
+    return res.status(401).json({ error: 'Токен не указан' });
+  }
+  
+  try {
+    // Проверяем токен в БД
+    const result = await pool.query(`
+      SELECT * FROM access_tokens 
+      WHERE token = $1
+    `, [accessToken]);
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Доступ запрещен' });
+    }
+    
+    const tokenData = result.rows[0];
+    const now = new Date();
+    
+    if (new Date(tokenData.expires_at) < now) {
+      await pool.query(`DELETE FROM access_tokens WHERE token = $1`, [accessToken]);
+      return res.status(401).json({ error: 'Токен устарел' });
+    }
+    
+    res.json({ valid: true });
+  } catch (error) {
+    console.error('Ошибка проверки токена:', error);
+    res.status(500).json({ error: 'Не удалось проверить токен' });
   }
 });
 
 // Получение меток пользователя
-app.get('/api/marks/:userId', authenticateToken, async (req, res) => {
+app.get('/api/marks/:userId', async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
+    const accessToken = req.headers.authorization?.split(' ')[1];
     
-    // Проверка, что запрос делает сам пользователь
-    if (userId !== req.user.userId) {
-      return res.status(403).json({ 
-        error: 'Доступ запрещен' 
-      });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
     }
     
+    // Проверяем токен
+    const tokenResult = await pool.query(`
+      SELECT * FROM access_tokens 
+      WHERE token = $1
+    `, [accessToken]);
+    
+    if (tokenResult.rows.length === 0 || tokenResult.rows[0].user_id !== userId) {
+      return res.status(403).json({ error: 'Доступ запрещен' });
+    }
+    
+    // Проверяем срок действия токена
+    const tokenData = tokenResult.rows[0];
+    const now = new Date();
+    
+    if (new Date(tokenData.expires_at) < now) {
+      await pool.query(`DELETE FROM access_tokens WHERE token = $1`, [accessToken]);
+      return res.status(401).json({ error: 'Токен устарел' });
+    }
+    
+    // Получаем метки пользователя
     const result = await pool.query(
       `SELECT tile_id, mark_type, comment 
        FROM user_marks 
@@ -237,15 +355,32 @@ app.get('/api/marks/:userId', authenticateToken, async (req, res) => {
 });
 
 // Сохранение метки
-app.post('/api/marks', authenticateToken, async (req, res) => {
+app.post('/api/marks', async (req, res) => {
   try {
     const { user_id, tile_id, mark_type, comment } = req.body;
+    const accessToken = req.headers.authorization?.split(' ')[1];
     
-    // Проверка, что пользователь может изменять только свои метки
-    if (user_id !== req.user.userId) {
-      return res.status(403).json({ 
-        error: 'Доступ запрещен' 
-      });
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+    
+    // Проверяем токен
+    const tokenResult = await pool.query(`
+      SELECT * FROM access_tokens 
+      WHERE token = $1
+    `, [accessToken]);
+    
+    if (tokenResult.rows.length === 0 || tokenResult.rows[0].user_id !== user_id) {
+      return res.status(403).json({ error: 'Доступ запрещен' });
+    }
+    
+    // Проверяем срок действия токена
+    const tokenData = tokenResult.rows[0];
+    const now = new Date();
+    
+    if (new Date(tokenData.expires_at) < now) {
+      await pool.query(`DELETE FROM access_tokens WHERE token = $1`, [accessToken]);
+      return res.status(401).json({ error: 'Токен устарел' });
     }
     
     // Валидация
@@ -303,9 +438,33 @@ app.post('/api/marks', authenticateToken, async (req, res) => {
 });
 
 // Получение тайлов в пределах границ
-app.get('/api/tiles/bounds', authenticateToken, async (req, res) => {
+app.get('/api/tiles/bounds', async (req, res) => {
   try {
     const { west, south, east, north, limit = 1000, offset = 0 } = req.query;
+    const accessToken = req.headers.authorization?.split(' ')[1];
+    
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+    
+    // Проверяем токен
+    const tokenResult = await pool.query(`
+      SELECT * FROM access_tokens 
+      WHERE token = $1
+    `, [accessToken]);
+    
+    if (tokenResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Токен недействителен' });
+    }
+    
+    // Проверяем срок действия токена
+    const tokenData = tokenResult.rows[0];
+    const now = new Date();
+    
+    if (new Date(tokenData.expires_at) < now) {
+      await pool.query(`DELETE FROM access_tokens WHERE token = $1`, [accessToken]);
+      return res.status(401).json({ error: 'Токен устарел' });
+    }
     
     // Валидация и парсинг параметров
     const bounds = {
