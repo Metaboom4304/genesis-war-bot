@@ -7,11 +7,12 @@ import path from 'path';
 import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { Pool } from 'pg'; // Импортируем Pool из pg
 
 // -----------------------------
 // ENV проверка
 // -----------------------------
-const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL'];
+const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL'];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
@@ -20,11 +21,31 @@ for (const key of requiredEnv) {
 }
 
 // -----------------------------
+// Подключение к базе данных
+// -----------------------------
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Проверка подключения к БД
+pool.connect()
+  .then(client => {
+    client.release();
+    console.log('✅ Подключение к базе данных установлено');
+  })
+  .catch(err => {
+    console.error('❌ Ошибка подключения к базе данных:', err);
+    // Можно добавить process.exit(1) если критично
+  });
+
+// -----------------------------
 // Константы и пути
 // -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const API_URL       = process.env.API_URL;
-const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000;
+const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10001;
 const MAP_URL       = process.env.MAP_URL || 'https://genesis-data.onrender.com';
 
 const __filename   = fileURLToPath(import.meta.url);
@@ -52,7 +73,16 @@ setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 // -----------------------------
 // Telegram Bot
 // -----------------------------
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN, { 
+  polling: true,
+  pollingOptions: {
+    interval: 300, // Уменьшаем интервал опроса
+    autoStart: true,
+    params: {
+      timeout: 10
+    }
+  }
+});
 
 bot.getMe()
   .then(me => console.log(`✅ GENESIS bot active as @${me.username}`))
@@ -256,7 +286,7 @@ ${code}
           }],
           [{
             text: '🗺 Открыть карту',
-            callback_data: 'open_map'
+            callback_ 'open_map'
           }]
         ]
       }
