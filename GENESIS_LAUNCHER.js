@@ -12,7 +12,7 @@ import { Pool } from 'pg';
 // -----------------------------
 // ENV проверка
 // -----------------------------
-const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL'];
+const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL', 'ADMIN_ID'];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
@@ -46,6 +46,7 @@ const TOKEN         = process.env.TELEGRAM_TOKEN;
 const API_URL       = process.env.API_URL;
 const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10001;
 const MAP_URL       = process.env.MAP_URL || 'https://genesis-data.onrender.com';
+const ADMIN_ID      = process.env.ADMIN_ID;
 
 const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = path.dirname(__filename);
@@ -180,7 +181,7 @@ bot.onText(/\/users/, async (msg) => {
   const userId = msg.from.id;
   
   // Проверяем, является ли пользователь администратором
-  if (process.env.ADMIN_ID && process.env.ADMIN_ID.toString() === userId.toString()) {
+  if (ADMIN_ID && ADMIN_ID.toString() === userId.toString()) {
     const userCount = users.size;
     const activeUsers = await getActiveUsersCount();
     
@@ -281,11 +282,11 @@ ${code}
         inline_keyboard: [
           [{
             text: '🔄 Получить новый код',
-            callback_data: 'get_code'
+            callback_ 'get_code'
           }],
           [{
             text: '🗺 Открыть карту',
-            callback_data: 'open_map'
+            callback_ 'open_map'
           }]
         ]
       }
