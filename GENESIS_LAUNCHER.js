@@ -25,6 +25,7 @@ for (const key of requiredEnv) {
 const TOKEN         = process.env.TELEGRAM_TOKEN;
 const API_URL       = process.env.API_URL;
 const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10000;
+const MAP_URL       = process.env.MAP_URL || 'https://genesis-data.onrender.com';
 
 const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = path.dirname(__filename);
@@ -58,251 +59,230 @@ bot.getMe()
   .catch(console.error);
 
 // -----------------------------
-// Хранилище запросов аутентификации
+// Хранилище пользователей
 // -----------------------------
-const authRequests = new Map();
+const users = new Map();
+
+// Загрузка пользователей из БД при старте
+async function loadUsers() {
+  try {
+    const result = await pool.query('SELECT * FROM users');
+    result.rows.forEach(user => {
+      users.set(user.id.toString(), {
+        id: user.id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        username: user.username,
+        language_code: user.language_code,
+        registered: true
+      });
+    });
+    console.log(`✅ Загружено ${users.size} пользователей`);
+  } catch (error) {
+    console.error('❌ Ошибка загрузки пользователей:', error);
+  }
+}
+
+// Регистрация пользователя
+async function registerUser(userId, firstName, lastName, username, languageCode) {
+  try {
+    await pool.query(`
+      INSERT INTO users (id, first_name, last_name, username, language_code)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (id) 
+      DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        username = EXCLUDED.username,
+        language_code = EXCLUDED.language_code
+    `, [userId, firstName, lastName || null, username || null, languageCode || 'ru']);
+    
+    users.set(userId.toString(), {
+      id: userId,
+      first_name: firstName,
+      last_name: lastName,
+      username: username,
+      language_code: languageCode,
+      registered: true
+    });
+    
+    return true;
+  } catch (error) {
+    console.error(`❌ Ошибка регистрации пользователя ${userId}:`, error);
+    return false;
+  }
+}
+
+// Генерация случайного кода
+function generateAccessCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString().substring(0, 6);
+}
 
 // -----------------------------
 // Обработчики команд
 // -----------------------------
-// Обработчик команды /start с параметром auth_
-bot.onText(/\/start\s+auth_(.+)/, async (msg, match) => {
+// Обработчик команды /start
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-  const requestId = match[1];
-  
-  console.log(`🔍 Получен запрос аутентификации с request_id: ${requestId}`);
-  
-  // Проверяем, существует ли запрос
-  if (!authRequests.has(requestId)) {
-    console.log(`❌ Запрос на аутентификацию не найден: ${requestId}`);
-    return bot.sendMessage(chatId, '❌ Запрос на аутентификацию не найден или устарел. Попробуйте войти снова.');
-  }
-  
-  const { expiresAt } = authRequests.get(requestId);
-  
-  // Проверяем срок действия запроса
-  if (Date.now() > expiresAt) {
-    authRequests.delete(requestId);
-    console.log(`❌ Запрос на аутентификацию устарел: ${requestId}`);
-    return bot.sendMessage(chatId, '❌ Запрос на аутентификацию устарел. Попробуйте войти снова.');
-  }
-  
-  console.log(`✅ Запрос на аутентификацию подтвержден: ${requestId}`);
-  
   const userId = msg.from.id;
   const firstName = msg.from.first_name;
   const lastName = msg.from.last_name || '';
   const username = msg.from.username || '';
+  const languageCode = msg.from.language_code || 'ru';
   
-  try {
-    // Отправляем запрос на сервер для генерации токена
-    const response = await fetch(`${API_URL}/api/users/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        telegram_id: userId,
-        first_name: firstName,
-        last_name: lastName,
-        username: username
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to generate token');
-    }
-    
-    const { token } = await response.json();
-    
-    // Отправляем пользователю ссылку с токеном
-    const siteUrl = 'https://genesis-data.onrender.com';
-    const authUrl = `${siteUrl}?token=${token}&request_id=${requestId}`;
-    
-    const message = `
-✅ Аутентификация подтверждена!
+  // Регистрируем пользователя
+  await registerUser(userId, firstName, lastName, username, languageCode);
+  
+  // Отправляем меню
+  sendMainMenu(chatId, userId);
+});
 
-Перейдите на сайт для продолжения:
-${authUrl}
+// Обработчик команды /code
+bot.onText(/\/code/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  sendAccessCode(chatId, userId);
+});
 
-Ссылка действительна 5 минут.
-    `;
+// Обработчик команды /users
+bot.onText(/\/users/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  // Проверяем, является ли пользователь администратором
+  if (process.env.ADMIN_ID && process.env.ADMIN_ID.toString() === userId.toString()) {
+    const userCount = users.size;
+    const activeUsers = await getActiveUsersCount();
     
-    console.log(`✅ Токен сгенерирован для пользователя ${userId}`);
-    console.log(`🔗 Ссылка для входа: ${authUrl}`);
+    let message = `📊 Статистика пользователей:\n\n`;
+    message += `👥 Всего пользователей: ${userCount}\n`;
+    message += `✅ Активных сегодня: ${activeUsers}\n\n`;
+    message += `Для обновления статистики используйте /users`;
     
-    await bot.sendMessage(
-      chatId, 
-      message,
-      { 
-        disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [
-            [{
-              text: 'Перейти к карте',
-              url: authUrl
-            }]
-          ]
-        }
-      }
-    );
-    
-    // Удаляем запрос из хранилища
-    authRequests.delete(requestId);
-    console.log(`🧹 Запрос ${requestId} удален из хранилища`);
-  } catch (error) {
-    console.error('Auth confirmation error:', error);
-    await bot.sendMessage(chatId, '❌ Ошибка при подтверждении аутентификации. Попробуйте позже.');
+    bot.sendMessage(chatId, message);
   }
 });
 
-// Обработчик команды /start без параметров
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
+// -----------------------------
+// Обработчик callback-запросов
+// -----------------------------
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+  
+  if (query.data === 'get_code') {
+    sendAccessCode(chatId, userId);
+    bot.answerCallbackQuery(query.id);
+  } else if (query.data === 'open_map') {
+    bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{
+            text: 'Перейти к карте',
+            url: MAP_URL
+          }]
+        ]
+      }
+    });
+    bot.answerCallbackQuery(query.id);
+  }
+});
+
+// -----------------------------
+// Вспомогательные функции
+// -----------------------------
+// Отправка главного меню
+function sendMainMenu(chatId, userId) {
+  const keyboard = {
+    reply_markup: {
+      keyboard: [
+        ['🔑 Получить код доступа', '🗺 Открыть карту']
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  };
   
   const message = `
 🌍 Добро пожаловать в GENESIS WAR MAP!
 
-Для доступа к карте требуется авторизация через Telegram.
-
-Нажмите на кнопку ниже для входа:
+Нажмите на кнопку ниже для получения кода доступа к карте.
   `;
   
-  bot.sendMessage(chatId, message, {
-    reply_markup: {
-      inline_keyboard: [
-        [{
-          text: 'Войти через Telegram',
-          callback_data: 'auth_request'
-        }]
-      ]
+  bot.sendMessage(chatId, message, keyboard);
+}
+
+// Отправка кода доступа
+async function sendAccessCode(chatId, userId) {
+  try {
+    // Генерируем новый код
+    const code = generateAccessCode();
+    
+    // Сохраняем код через API
+    const response = await fetch(`${API_URL}/api/save-code`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        code,
+        userId
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Не удалось сохранить код');
     }
-  });
-});
-
-// Обработчик callback-запросов
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const uid = String(query.from.id);
-  
-  if (query.data === 'auth_request') {
-    // Генерируем уникальный запрос
-    const requestId = Math.random().toString(36).substr(2, 9);
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 минут
     
-    // Сохраняем запрос
-    authRequests.set(requestId, { expiresAt });
-    
+    // Отправляем код пользователю
     const message = `
-✅ Запрос на аутентификацию создан!
+🔑 Ваш код доступа к карте:
 
-Для завершения входа:
-1. Нажмите на кнопку "Подтвердить вход" ниже
-2. Система автоматически перенаправит вас на карту
+\`\`\`
+${code}
+\`\`\`
 
-Код действителен 5 минут.
+Код действителен 5 минут. Скопируйте его и введите на сайте.
     `;
     
     bot.sendMessage(chatId, message, {
+      parse_mode: 'MarkdownV2',
       reply_markup: {
         inline_keyboard: [
           [{
-            text: 'Подтвердить вход',
-            callback_data: `confirm_auth_${requestId}`
+            text: '🔄 Получить новый код',
+            callback_data: 'get_code'
+          }],
+          [{
+            text: '🗺 Открыть карту',
+            callback_data: 'open_map'
           }]
         ]
       }
     });
     
-    bot.answerCallbackQuery(query.id);
-  } else if (query.data.startsWith('confirm_auth_')) {
-    const requestId = query.data.replace('confirm_auth_', '');
-    
-    // Проверяем, существует ли запрос
-    if (!authRequests.has(requestId)) {
-      await bot.answerCallbackQuery(query.id, {
-        text: 'Запрос не найден или устарел',
-        show_alert: true
-      });
-      return;
-    }
-    
-    const { expiresAt } = authRequests.get(requestId);
-    
-    // Проверяем срок действия запроса
-    if (Date.now() > expiresAt) {
-      authRequests.delete(requestId);
-      await bot.answerCallbackQuery(query.id, {
-        text: 'Запрос устарел, создайте новый',
-        show_alert: true
-      });
-      return;
-    }
-    
-    const userId = query.from.id;
-    const firstName = query.from.first_name;
-    const lastName = query.from.last_name || '';
-    const username = query.from.username || '';
-    
-    try {
-      // Отправляем запрос на сервер для генерации токена
-      const response = await fetch(`${API_URL}/api/users/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telegram_id: userId,
-          first_name: firstName,
-          last_name: lastName,
-          username: username
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate token');
-      }
-      
-      const { token } = await response.json();
-      
-      // Отправляем пользователю ссылку с токеном
-      const siteUrl = 'https://genesis-data.onrender.com';
-      const authUrl = `${siteUrl}?token=${token}&request_id=${requestId}`;
-      
-      const message = `
-✅ Аутентификация подтверждена!
-
-Перейдите на сайт для продолжения:
-${authUrl}
-
-Ссылка действительна 5 минут.
-      `;
-      
-      await bot.sendMessage(
-        chatId, 
-        message,
-        { 
-          disable_web_page_preview: true,
-          reply_markup: {
-            inline_keyboard: [
-              [{
-                text: 'Перейти к карте',
-                url: authUrl
-              }]
-            ]
-          }
-        }
-      );
-      
-      // Удаляем запрос из хранилища
-      authRequests.delete(requestId);
-      
-      await bot.answerCallbackQuery(query.id);
-    } catch (error) {
-      console.error('Auth confirmation error:', error);
-      await bot.answerCallbackQuery(query.id, {
-        text: 'Ошибка при подтверждении аутентификации',
-        show_alert: true
-      });
-    }
+  } catch (error) {
+    console.error('Error generating code:', error);
+    bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
   }
-});
+}
+
+// Получение количества активных пользователей
+async function getActiveUsersCount() {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM users 
+      WHERE created_at >= NOW() - INTERVAL '1 day'
+    `);
+    
+    return parseInt(result.rows[0].count, 10);
+  } catch (error) {
+    console.error('❌ Ошибка получения статистики:', error);
+    return 0;
+  }
+}
 
 // -----------------------------
 // Graceful shutdown
@@ -319,3 +299,18 @@ async function cleanUp() {
 }
 process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
+
+// -----------------------------
+// Инициализация
+// -----------------------------
+(async () => {
+  try {
+    // Загружаем пользователей
+    await loadUsers();
+    
+    console.log('✅ Бот инициализирован');
+  } catch (error) {
+    console.error('❌ Ошибка инициализации бота:', error);
+    process.exit(1);
+  }
+})();
