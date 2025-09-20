@@ -7,7 +7,7 @@ import path from 'path';
 import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { Pool } from 'pg'; // Импортируем Pool из pg
+import { Pool } from 'pg';
 
 // -----------------------------
 // ENV проверка
@@ -37,7 +37,6 @@ pool.connect()
   })
   .catch(err => {
     console.error('❌ Ошибка подключения к базе данных:', err);
-    // Можно добавить process.exit(1) если критично
   });
 
 // -----------------------------
@@ -76,7 +75,7 @@ setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 const bot = new TelegramBot(TOKEN, { 
   polling: true,
   pollingOptions: {
-    interval: 300, // Уменьшаем интервал опроса
+    interval: 300,
     autoStart: true,
     params: {
       timeout: 10
@@ -286,7 +285,7 @@ ${code}
           }],
           [{
             text: '🗺 Открыть карту',
-            callback_ 'open_map'
+            callback_data: 'open_map'
           }]
         ]
       }
