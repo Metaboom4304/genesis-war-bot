@@ -1,7 +1,7 @@
 // index.js - API для GENESIS WAR MAP
 import express from 'express';
 import cors from 'cors';
-import pkg from 'pg';
+import { Pool } from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import 'dotenv/config';
@@ -10,7 +10,6 @@ import compression from 'compression';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
-const { Pool } = pkg;
 const app = express();
 const port = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
@@ -30,7 +29,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "", "https://*"],
+      imgSrc: ["'self'", "data:", "https://*"],
       connectSrc: ["'self'", API_URL],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       frameSrc: ["'self'", "https://*.t.me", "https://*.telegram.org"]
