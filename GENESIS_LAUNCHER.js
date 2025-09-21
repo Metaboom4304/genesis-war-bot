@@ -8,11 +8,12 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Pool } from 'pg';
+import fetch from 'node-fetch';
 
 // -----------------------------
 // ENV проверка
 // -----------------------------
-const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL', 'ADMIN_ID'];
+const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL'];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
