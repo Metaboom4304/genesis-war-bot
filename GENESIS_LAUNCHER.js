@@ -2,11 +2,10 @@
 // GENESIS_LAUNCHER.js (ESM) - Основной файл бота
 // ============================
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
 import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import { Pool } from 'pg';
 import fetch from 'node-fetch';
 
@@ -35,10 +34,38 @@ pool.connect()
   .then(client => {
     client.release();
     console.log('✅ Подключение к базе данных установлено');
+    
+    // Инициализация структуры БД при подключении
+    initDatabase();
   })
   .catch(err => {
     console.error('❌ Ошибка подключения к базе данных:', err);
   });
+
+// -----------------------------
+// Инициализация структуры БД
+// -----------------------------
+async function initDatabase() {
+  try {
+    console.log('🔧 Проверка структуры базы данных...');
+    
+    // Создаем таблицу users если её нет
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id BIGINT PRIMARY KEY,
+        first_name TEXT NOT NULL,
+        last_name TEXT,
+        username TEXT,
+        language_code TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    
+    console.log('✅ Структура базы данных проверена');
+  } catch (error) {
+    console.error('❌ Ошибка инициализации базы данных:', error);
+  }
+}
 
 // -----------------------------
 // Константы и пути
@@ -50,7 +77,7 @@ const MAP_URL       = process.env.MAP_URL || 'https://genesis-data.onrender.com'
 const ADMIN_ID      = process.env.ADMIN_ID;
 
 const __filename   = fileURLToPath(import.meta.url);
-const __dirname    = path.dirname(__filename);
+const __dirname    = dirname(__filename);
 
 // -----------------------------
 // Express keep-alive
@@ -68,26 +95,53 @@ app.get('/health', (_req, res) => {
 
 app.get('/', (_req, res) => res.send('🤖 GENESIS bot is alive!'));
 
-app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express (keep-alive) listening on port ${BOT_PORT}`));
+const server = app.listen(BOT_PORT, '0.0.0.0', () => console.log(`🌍 Express (keep-alive) listening on port ${BOT_PORT}`));
 setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 
 // -----------------------------
 // Telegram Bot
 // -----------------------------
-const bot = new TelegramBot(TOKEN, { 
-  polling: true,
-  pollingOptions: {
-    interval: 300,
-    autoStart: true,
-    params: {
-      timeout: 10
-    }
-  }
-});
+// Используем webhook вместо polling для избежания конфликтов
+const bot = new TelegramBot(TOKEN);
 
-bot.getMe()
-  .then(me => console.log(`✅ GENESIS bot active as @${me.username}`))
-  .catch(console.error);
+// Настройка webhook
+async function setupWebhook() {
+  try {
+    // Получаем URL для webhook (используем Render URL)
+    const webhookUrl = `https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'genesis-war-bot.onrender.com'}/webhook`;
+    
+    // Устанавливаем webhook
+    await bot.setWebHook(webhookUrl);
+    console.log(`✅ Webhook установлен: ${webhookUrl}`);
+    
+    // Обработка webhook запросов
+    app.post('/webhook', (req, res) => {
+      bot.processUpdate(req.body);
+      res.sendStatus(200);
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка настройки webhook:', error);
+    // Fallback на polling если webhook не работает
+    startPolling();
+  }
+}
+
+// Fallback на polling
+function startPolling() {
+  console.log('🔄 Запуск polling...');
+  bot.startPolling({
+    polling: {
+      interval: 300,
+      timeout: 10,
+      limit: 100
+    }
+  });
+  
+  bot.getMe()
+    .then(me => console.log(`✅ GENESIS bot active as @${me.username} (polling mode)`))
+    .catch(console.error);
+}
 
 // -----------------------------
 // Хранилище пользователей
@@ -161,11 +215,17 @@ bot.onText(/\/start/, async (msg) => {
   const username = msg.from.username || '';
   const languageCode = msg.from.language_code || 'ru';
   
-  // Регистрируем пользователя
-  await registerUser(userId, firstName, lastName, username, languageCode);
+  console.log(`👤 Пользователь ${userId} начал работу с ботом`);
   
-  // Отправляем меню
-  sendMainMenu(chatId, userId);
+  // Регистрируем пользователя
+  const registered = await registerUser(userId, firstName, lastName, username, languageCode);
+  
+  if (registered) {
+    // Отправляем меню
+    sendMainMenu(chatId, userId);
+  } else {
+    bot.sendMessage(chatId, '❌ Произошла ошибка при регистрации. Попробуйте позже.');
+  }
 });
 
 // Обработчик команды /code
@@ -173,6 +233,7 @@ bot.onText(/\/code/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
+  console.log(`🔑 Пользователь ${userId} запросил код доступа`);
   sendAccessCode(chatId, userId);
 });
 
@@ -195,17 +256,21 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
-// -----------------------------
-// Обработчик callback-запросов
-// -----------------------------
-bot.on('callback_query', async (query) => {
-  const chatId = query.message.chat.id;
-  const userId = query.from.id;
+// Обработчик текстовых сообщений
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+  const userId = msg.from.id;
   
-  if (query.data === 'get_code') {
-    await sendAccessCode(chatId, userId);
-    bot.answerCallbackQuery(query.id);
-  } else if (query.data === 'open_map') {
+  // Игнорируем команды (они обрабатываются отдельно)
+  if (text && text.startsWith('/')) {
+    return;
+  }
+  
+  // Обработка текстовых кнопок
+  if (text === '🔑 Получить код доступа') {
+    sendAccessCode(chatId, userId);
+  } else if (text === '🗺 Открыть карту') {
     bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
       reply_markup: {
         inline_keyboard: [
@@ -216,7 +281,37 @@ bot.on('callback_query', async (query) => {
         ]
       }
     });
-    bot.answerCallbackQuery(query.id);
+  }
+});
+
+// -----------------------------
+// Обработчик callback-запросов
+// -----------------------------
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+  const messageId = query.message.message_id;
+  
+  try {
+    if (query.data === 'get_code') {
+      await sendAccessCode(chatId, userId);
+      bot.answerCallbackQuery(query.id, { text: 'Новый код сгенерирован' });
+    } else if (query.data === 'open_map') {
+      bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: 'Перейти к карте',
+              url: MAP_URL
+            }]
+          ]
+        }
+      });
+      bot.answerCallbackQuery(query.id);
+    }
+  } catch (error) {
+    console.error('❌ Ошибка обработки callback:', error);
+    bot.answerCallbackQuery(query.id, { text: 'Произошла ошибка' });
   }
 });
 
@@ -249,6 +344,8 @@ async function sendAccessCode(chatId, userId) {
   try {
     // Генерируем новый код
     const code = generateAccessCode();
+    
+    console.log(`🔐 Генерация кода ${code} для пользователя ${userId}`);
     
     // Сохраняем код через API
     const response = await fetch(`${API_URL}/api/save-code`, {
@@ -293,8 +390,10 @@ ${code}
       }
     });
     
+    console.log(`✅ Код ${code} отправлен пользователю ${userId}`);
+    
   } catch (error) {
-    console.error('Error generating code:', error);
+    console.error('❌ Error generating code:', error);
     bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
   }
 }
@@ -326,8 +425,20 @@ async function cleanUp() {
   } catch (err) {
     console.error('❌ Error during stopPolling:', err);
   }
-  process.exit(0);
+  
+  try {
+    await pool.end();
+    console.log('✅ Database connection closed.');
+  } catch (err) {
+    console.error('❌ Error closing database connection:', err);
+  }
+  
+  server.close(() => {
+    console.log('✅ HTTP server closed.');
+    process.exit(0);
+  });
 }
+
 process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
 
@@ -338,6 +449,13 @@ process.on('SIGTERM', cleanUp);
   try {
     // Загружаем пользователей
     await loadUsers();
+    
+    // Настраиваем webhook или polling
+    if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+      await setupWebhook();
+    } else {
+      startPolling();
+    }
     
     console.log('✅ Бот инициализирован');
   } catch (error) {
