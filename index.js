@@ -5,7 +5,6 @@ import { Pool } from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import 'dotenv/config';
-import jwt from 'jsonwebtoken';
 import compression from 'compression';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -16,11 +15,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // --- Конфигурация ---
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://genesis-data.onrender.com';
-const API_URL = process.env.API_URL || 'https://genesis-map-api.onrender.com';
 const CODE_LIFETIME = 5 * 60 * 1000; // 5 минут
-const CODE_LENGTH = 6;
 
 // --- Инициализация Middleware ---
 app.use(helmet({
@@ -30,7 +26,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https://*"],
-      connectSrc: ["'self'", API_URL],
+      connectSrc: ["'self'"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       frameSrc: ["'self'", "https://*.t.me", "https://*.telegram.org"]
     }
@@ -40,15 +36,15 @@ app.use(helmet({
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 
-// Ограничение количества запросов для защиты API
+// Ограничение количества запросов
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 1000, // максимум 1000 запросов с одного IP
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: 'Слишком много запросов, попробуйте позже'
 });
 app.use('/api/', apiLimiter);
 
-// Настройка CORS для разрешения запросов с фронтенда
+// Настройка CORS
 app.use(cors({
   origin: CORS_ORIGIN,
   credentials: true,
@@ -109,7 +105,7 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_tiles_tile_id ON tiles(tile_id);
     `);
     
-    // Таблица кодов доступа
+    // Таблица кодов доступа (ДОБАВЛЕНО)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS access_codes (
         code VARCHAR(6) PRIMARY KEY,
@@ -121,7 +117,7 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_access_codes_created ON access_codes(created_at);
     `);
     
-    // Таблица токенов доступа
+    // Таблица токенов доступа (ДОБАВЛЕНО)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS access_tokens (
         token VARCHAR(15) PRIMARY KEY,
@@ -143,11 +139,11 @@ async function initDatabase() {
 async function cleanupOldCodes() {
   try {
     const cutoffTime = new Date(Date.now() - CODE_LIFETIME);
-    await pool.query(`
+    const result = await pool.query(`
       DELETE FROM access_codes WHERE created_at < $1
     `, [cutoffTime]);
     
-    console.log('🧹 Старые коды очищены');
+    console.log(`🧹 Очищено ${result.rowCount} старых кодов`);
   } catch (error) {
     console.error('❌ Ошибка очистки старых кодов:', error);
   }
@@ -156,11 +152,11 @@ async function cleanupOldCodes() {
 async function cleanupOldTokens() {
   try {
     const cutoffTime = new Date();
-    await pool.query(`
+    const result = await pool.query(`
       DELETE FROM access_tokens WHERE expires_at < $1
     `, [cutoffTime]);
     
-    console.log('🧹 Старые токены очищены');
+    console.log(`🧹 Очищено ${result.rowCount} старых токенов`);
   } catch (error) {
     console.error('❌ Ошибка очистки старых токенов:', error);
   }
@@ -169,28 +165,25 @@ async function cleanupOldTokens() {
 // --- Инициализация периодической очистки ---
 cleanupOldCodes();
 cleanupOldTokens();
-
-setInterval(cleanupOldCodes, 10 * 60 * 1000); // Каждые 10 минут
-setInterval(cleanupOldTokens, 30 * 60 * 1000); // Каждые 30 минут
-
-// --- Функции ---
-// Генерация случайного кода
-function generateAccessCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString().substring(0, CODE_LENGTH);
-}
+setInterval(cleanupOldCodes, 10 * 60 * 1000);
+setInterval(cleanupOldTokens, 30 * 60 * 1000);
 
 // --- API Endpoints ---
+
 // Эндпоинт для сохранения кода (вызывается ботом)
 app.post('/api/save-code', async (req, res) => {
   const { code, userId } = req.body;
   
+  console.log('💾 Попытка сохранения кода:', { code, userId });
+  
   if (!code || !userId) {
+    console.log('❌ Отсутствуют обязательные параметры');
     return res.status(400).json({ error: 'Отсутствуют обязательные параметры' });
   }
   
   try {
     // Сохраняем код в БД
-    await pool.query(`
+    const result = await pool.query(`
       INSERT INTO access_codes (code, user_id)
       VALUES ($1, $2)
       ON CONFLICT (code) 
@@ -198,11 +191,13 @@ app.post('/api/save-code', async (req, res) => {
         user_id = EXCLUDED.user_id,
         created_at = NOW(),
         used = false
+      RETURNING *
     `, [code, userId]);
     
-    res.json({ success: true });
+    console.log('✅ Код успешно сохранен в БД:', result.rows[0]);
+    res.json({ success: true, savedCode: result.rows[0] });
   } catch (error) {
-    console.error('Ошибка сохранения кода:', error);
+    console.error('❌ Ошибка сохранения кода:', error);
     res.status(500).json({ error: 'Не удалось сохранить код' });
   }
 });
@@ -210,6 +205,8 @@ app.post('/api/save-code', async (req, res) => {
 // Эндпоинт для проверки кода (вызывается фронтендом)
 app.post('/api/verify-code', async (req, res) => {
   const { code } = req.body;
+  
+  console.log('🔍 Проверка кода:', code);
   
   if (!code) {
     return res.status(400).json({ error: 'Код не указан' });
@@ -223,6 +220,7 @@ app.post('/api/verify-code', async (req, res) => {
     `, [code]);
     
     if (result.rows.length === 0) {
+      console.log('❌ Код не найден:', code);
       return res.status(404).json({ error: 'Код не найден' });
     }
     
@@ -230,14 +228,16 @@ app.post('/api/verify-code', async (req, res) => {
     const now = new Date();
     const codeAge = now - new Date(accessCode.created_at);
     
-    // Проверяем срок действия
+    // Проверяем срок действия (5 минут)
     if (codeAge > CODE_LIFETIME) {
+      console.log('❌ Код устарел:', code);
       await pool.query(`DELETE FROM access_codes WHERE code = $1`, [code]);
       return res.status(401).json({ error: 'Код устарел' });
     }
     
     // Проверяем, использован ли код
     if (accessCode.used) {
+      console.log('❌ Код уже использован:', code);
       return res.status(401).json({ error: 'Код уже использован' });
     }
     
@@ -261,13 +261,15 @@ app.post('/api/verify-code', async (req, res) => {
         expires_at = EXCLUDED.expires_at
     `, [accessToken, accessCode.user_id, new Date(Date.now() + 60 * 60 * 1000)]);
     
+    console.log('✅ Код подтвержден, токен выдан:', { code, accessToken });
+    
     res.json({ 
       success: true,
       accessToken,
-      expiresIn: 3600 // 1 час в секундах
+      expiresIn: 3600
     });
   } catch (error) {
-    console.error('Ошибка проверки кода:', error);
+    console.error('❌ Ошибка проверки кода:', error);
     res.status(500).json({ error: 'Не удалось проверить код' });
   }
 });
@@ -301,7 +303,7 @@ app.post('/api/check-access', async (req, res) => {
     
     res.json({ valid: true });
   } catch (error) {
-    console.error('Ошибка проверки токена:', error);
+    console.error('❌ Ошибка проверки токена:', error);
     res.status(500).json({ error: 'Не удалось проверить токен' });
   }
 });
@@ -345,7 +347,7 @@ app.get('/api/marks/:userId', async (req, res) => {
     
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error(`Ошибка получения меток для пользователя ${req.params.userId}:`, error);
+    console.error(`❌ Ошибка получения меток для пользователя ${req.params.userId}:`, error);
     res.status(500).json({ 
       error: 'Не удалось получить метки',
       details: error.message 
@@ -428,7 +430,7 @@ app.post('/api/marks', async (req, res) => {
         });
     }
   } catch (error) {
-    console.error(`Ошибка сохранения метки для пользователя ${req.body.user_id} на тайле ${req.body.tile_id}:`, error);
+    console.error(`❌ Ошибка сохранения метки для пользователя ${req.body.user_id} на тайле ${req.body.tile_id}:`, error);
     res.status(500).json({ 
       error: 'Не удалось сохранить метку', 
       details: error.message 
@@ -534,12 +536,21 @@ app.get('/api/tiles/bounds', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Ошибка запроса тайлов по границам:', error);
+    console.error('❌ Ошибка запроса тайлов по границам:', error);
     res.status(500).json({
       error: 'Не удалось получить тайлы',
       message: error.message
     });
   }
+});
+
+// Health check endpoint
+app.get('/health', (_req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    service: 'genesis-war-api',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // --- Запуск сервера ---
@@ -548,11 +559,10 @@ app.listen(port, async () => {
   console.log(`🌐 CORS разрешён для: ${CORS_ORIGIN}`);
   
   try {
-    // Инициализируем БД
     await initDatabase();
+    console.log('✅ База данных инициализирована');
   } catch (error) {
     console.error('❌ Критическая ошибка инициализации:', error);
-    // Даже при ошибке продолжаем работу
   }
 });
 
