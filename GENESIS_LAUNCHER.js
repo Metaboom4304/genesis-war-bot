@@ -355,6 +355,7 @@ async function sendAccessCode(chatId, userId) {
     const code = generateAccessCode();
     console.log(`🔐 Генерация кода ${code} для пользователя ${userId}`);
     
+    // Пробуем сохранить код через API
     try {
       const response = await fetch(`${API_URL}/api/save-code`, {
         method: 'POST',
@@ -362,28 +363,78 @@ async function sendAccessCode(chatId, userId) {
         body: JSON.stringify({ code, userId })
       });
       
-      if (!response.ok) throw new Error(`API вернул статус ${response.status}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API вернул статус ${response.status}: ${errorText}`);
+      }
+      
       console.log(`✅ Код ${code} сохранен через API`);
     } catch (apiError) {
       console.error('❌ Ошибка сохранения кода через API:', apiError.message);
+      // Продолжаем работу даже при ошибке API
     }
     
-    const message = `🔑 Ваш код доступа к карте:\n\n\`\`\`\n${code}\n\`\`\`\n\nКод действителен 5 минут. Скопируйте его и введите на сайте.`;
+    // Используем HTML разметку вместо MarkdownV2
+    const message = `
+🔑 <b>Ваш код доступа к карте:</b>
+
+<code>${code}</code>
+
+Код действителен 5 минут. Скопируйте его и введите на сайте.
+    `;
     
     await bot.sendMessage(chatId, message, {
-      parse_mode: 'MarkdownV2',
+      parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 Получить новый код', callback_data: 'get_code' }],
-          [{ text: '🗺 Открыть карту', callback_data: 'open_map' }]
+          [{
+            text: '🔄 Получить новый код',
+            callback_data: 'get_code'
+          }],
+          [{
+            text: '🗺 Открыть карту',
+            callback_data: 'open_map'
+          }]
         ]
       }
     });
     
     console.log(`✅ Код ${code} отправлен пользователю ${userId}`);
+    
   } catch (error) {
     console.error('❌ Error generating code:', error);
-    bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
+    
+    // Fallback: простой текст без форматирования
+    try {
+      const code = generateAccessCode();
+      const fallbackMessage = `
+🔑 Ваш код доступа к карте:
+
+${code}
+
+Код действителен 5 минут. Скопируйте его и введите на сайте.
+      `;
+      
+      await bot.sendMessage(chatId, fallbackMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: '🔄 Получить новый код',
+              callback_data: 'get_code'
+            }],
+            [{
+              text: '🗺 Открыть карту',
+              callback_data: 'open_map'
+            }]
+          ]
+        }
+      });
+      
+      console.log(`✅ Код ${code} отправлен (fallback mode)`);
+    } catch (fallbackError) {
+      console.error('❌ Error in fallback mode:', fallbackError);
+      bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
+    }
   }
 }
 
