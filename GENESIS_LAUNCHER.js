@@ -29,19 +29,6 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// Проверка подключения к БД
-pool.connect()
-  .then(client => {
-    client.release();
-    console.log('✅ Подключение к базе данных установлено');
-    
-    // Инициализация структуры БД при подключении
-    initDatabase();
-  })
-  .catch(err => {
-    console.error('❌ Ошибка подключения к базе данных:', err);
-  });
-
 // -----------------------------
 // Инициализация структуры БД
 // -----------------------------
@@ -61,11 +48,33 @@ async function initDatabase() {
       );
     `);
     
+    // Проверим структуру таблицы
+    const checkQuery = `
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'users';
+    `;
+    const checkResult = await pool.query(checkQuery);
+    console.log('📊 Структура таблицы users:', checkResult.rows);
+    
     console.log('✅ Структура базы данных проверена');
   } catch (error) {
     console.error('❌ Ошибка инициализации базы данных:', error);
   }
 }
+
+// Проверка подключения к БД
+pool.connect()
+  .then(client => {
+    client.release();
+    console.log('✅ Подключение к базе данных установлено');
+    
+    // Инициализируем структуру БД при подключении
+    initDatabase();
+  })
+  .catch(err => {
+    console.error('❌ Ошибка подключения к базе данных:', err);
+  });
 
 // -----------------------------
 // Константы и пути
@@ -152,15 +161,21 @@ const users = new Map();
 async function loadUsers() {
   try {
     const result = await pool.query('SELECT * FROM users');
+    console.log(`📦 Загружаем пользователей: найдено ${result.rows.length} записей`);
     result.rows.forEach(user => {
-      users.set(user.id.toString(), {
-        id: user.id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        username: user.username,
-        language_code: user.language_code,
-        registered: true
-      });
+      // Проверяем, что user и user.id существуют
+      if (user && user.id !== undefined && user.id !== null) {
+        users.set(user.id.toString(), {
+          id: user.id,
+          first_name: user.first_name || '',
+          last_name: user.last_name || '',
+          username: user.username || '',
+          language_code: user.language_code || 'ru',
+          registered: true
+        });
+      } else {
+        console.warn('⚠️ Пропущена запись пользователя без id:', user);
+      }
     });
     console.log(`✅ Загружено ${users.size} пользователей`);
   } catch (error) {
@@ -171,7 +186,9 @@ async function loadUsers() {
 // Регистрация пользователя
 async function registerUser(userId, firstName, lastName, username, languageCode) {
   try {
-    await pool.query(`
+    console.log(`🔧 Попытка регистрации пользователя: ${userId}`);
+    
+    const result = await pool.query(`
       INSERT INTO users (id, first_name, last_name, username, language_code)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (id) 
@@ -180,7 +197,10 @@ async function registerUser(userId, firstName, lastName, username, languageCode)
         last_name = EXCLUDED.last_name,
         username = EXCLUDED.username,
         language_code = EXCLUDED.language_code
+      RETURNING *
     `, [userId, firstName, lastName || null, username || null, languageCode || 'ru']);
+    
+    console.log(`✅ Пользователь ${userId} успешно зарегистрирован:`, result.rows[0]);
     
     users.set(userId.toString(), {
       id: userId,
@@ -194,6 +214,26 @@ async function registerUser(userId, firstName, lastName, username, languageCode)
     return true;
   } catch (error) {
     console.error(`❌ Ошибка регистрации пользователя ${userId}:`, error);
+    
+    // Дополнительная диагностика
+    if (error.code === '42703') { // Ошибка отсутствующего столбца
+      console.error('🔍 Возможные причины:');
+      console.error('1. Неправильная структура таблицы users');
+      console.error('2. Несоответствие между запросом и структурой таблицы');
+      
+      // Попробуем получить структуру таблицы
+      try {
+        const tableInfo = await pool.query(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'users'
+        `);
+        console.error('📊 Текущая структура таблицы users:', tableInfo.rows);
+      } catch (infoError) {
+        console.error('❌ Не удалось получить информацию о таблице:', infoError);
+      }
+    }
+    
     return false;
   }
 }
@@ -217,14 +257,31 @@ bot.onText(/\/start/, async (msg) => {
   
   console.log(`👤 Пользователь ${userId} начал работу с ботом`);
   
-  // Регистрируем пользователя
-  const registered = await registerUser(userId, firstName, lastName, username, languageCode);
-  
-  if (registered) {
-    // Отправляем меню
+  try {
+    // Сначала попробуем просто добавить пользователя в память
+    users.set(userId.toString(), {
+      id: userId,
+      first_name: firstName,
+      last_name: lastName,
+      username: username,
+      language_code: languageCode,
+      registered: false // Отмечаем как не зарегистрированного в БД
+    });
+    
+    // Пытаемся зарегистрировать в БД, но не блокируем работу при ошибке
+    const registered = await registerUser(userId, firstName, lastName, username, languageCode);
+    
+    if (!registered) {
+      console.log(`⚠️ Пользователь ${userId} добавлен только в память (ошибка БД)`);
+      bot.sendMessage(chatId, 'Добро пожаловать! БД временно недоступна, но вы можете пользоваться ботом.');
+    }
+    
+    // Отправляем меню в любом случае
     sendMainMenu(chatId, userId);
-  } else {
-    bot.sendMessage(chatId, '❌ Произошла ошибка при регистрации. Попробуйте позже.');
+    
+  } catch (error) {
+    console.error(`❌ Критическая ошибка в обработчике /start:`, error);
+    bot.sendMessage(chatId, '❌ Произошла критическая ошибка. Попробуйте позже.');
   }
 });
 
