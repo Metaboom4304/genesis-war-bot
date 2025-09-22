@@ -30,15 +30,16 @@ const pool = new Pool({
 });
 
 // -----------------------------
-// Инициализация структуры БД
+// Принудительное создание таблицы
 // -----------------------------
-async function initDatabase() {
+async function forceCreateTable() {
   try {
-    console.log('🔧 Проверка структуры базы данных...');
+    console.log('🔧 Принудительное создание таблицы users...');
     
-    // Создаем таблицу users если её нет
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
+      DROP TABLE IF EXISTS public.users CASCADE;
+      
+      CREATE TABLE public.users (
         id BIGINT PRIMARY KEY,
         first_name TEXT NOT NULL,
         last_name TEXT,
@@ -48,29 +49,51 @@ async function initDatabase() {
       );
     `);
     
-    // Проверим структуру таблицы
-    const checkQuery = `
-      SELECT column_name, data_type, is_nullable
-      FROM information_schema.columns
-      WHERE table_name = 'users';
-    `;
-    const checkResult = await pool.query(checkQuery);
-    console.log('📊 Структура таблицы users:', checkResult.rows);
-    
-    console.log('✅ Структура базы данных проверена');
+    console.log('✅ Таблица users принудительно создана');
+    return true;
   } catch (error) {
-    console.error('❌ Ошибка инициализации базы данных:', error);
+    console.error('❌ Ошибка принудительного создания таблицы:', error);
+    return false;
+  }
+}
+
+// -----------------------------
+// Проверка структуры таблицы
+// -----------------------------
+async function checkTableStructure() {
+  try {
+    const result = await pool.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' AND table_name = 'users'
+      ORDER BY ordinal_position
+    `);
+    
+    console.log('📊 Структура таблицы users:', result.rows);
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Ошибка проверки структуры таблицы:', error);
+    return null;
   }
 }
 
 // Проверка подключения к БД
 pool.connect()
-  .then(client => {
+  .then(async (client) => {
     client.release();
     console.log('✅ Подключение к базе данных установлено');
     
-    // Инициализируем структуру БД при подключении
-    initDatabase();
+    // Проверяем текущую структуру
+    const structure = await checkTableStructure();
+    
+    // Если структура неправильная или таблицы нет, принудительно создаем
+    if (!structure || structure.length === 0 || !structure.find(col => col.column_name === 'id')) {
+      console.log('🔄 Обнаружена проблема со структурой таблицы, пересоздаем...');
+      await forceCreateTable();
+    }
+    
+    // Загружаем пользователей
+    await loadUsers();
   })
   .catch(err => {
     console.error('❌ Ошибка подключения к базе данных:', err);
@@ -110,33 +133,25 @@ setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 // -----------------------------
 // Telegram Bot
 // -----------------------------
-// Используем webhook вместо polling для избежания конфликтов
 const bot = new TelegramBot(TOKEN);
 
 // Настройка webhook
 async function setupWebhook() {
   try {
-    // Получаем URL для webhook (используем Render URL)
     const webhookUrl = `https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'genesis-war-bot.onrender.com'}/webhook`;
-    
-    // Устанавливаем webhook
     await bot.setWebHook(webhookUrl);
     console.log(`✅ Webhook установлен: ${webhookUrl}`);
     
-    // Обработка webhook запросов
     app.post('/webhook', (req, res) => {
       bot.processUpdate(req.body);
       res.sendStatus(200);
     });
-    
   } catch (error) {
     console.error('❌ Ошибка настройки webhook:', error);
-    // Fallback на polling если webhook не работает
     startPolling();
   }
 }
 
-// Fallback на polling
 function startPolling() {
   console.log('🔄 Запуск polling...');
   bot.startPolling({
@@ -160,10 +175,9 @@ const users = new Map();
 // Загрузка пользователей из БД при старте
 async function loadUsers() {
   try {
-    const result = await pool.query('SELECT * FROM users');
+    const result = await pool.query('SELECT * FROM public.users');
     console.log(`📦 Загружаем пользователей: найдено ${result.rows.length} записей`);
     result.rows.forEach(user => {
-      // Проверяем, что user и user.id существуют
       if (user && user.id !== undefined && user.id !== null) {
         users.set(user.id.toString(), {
           id: user.id,
@@ -173,8 +187,6 @@ async function loadUsers() {
           language_code: user.language_code || 'ru',
           registered: true
         });
-      } else {
-        console.warn('⚠️ Пропущена запись пользователя без id:', user);
       }
     });
     console.log(`✅ Загружено ${users.size} пользователей`);
@@ -189,7 +201,7 @@ async function registerUser(userId, firstName, lastName, username, languageCode)
     console.log(`🔧 Попытка регистрации пользователя: ${userId}`);
     
     const result = await pool.query(`
-      INSERT INTO users (id, first_name, last_name, username, language_code)
+      INSERT INTO public.users (id, first_name, last_name, username, language_code)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (id) 
       DO UPDATE SET
@@ -200,7 +212,7 @@ async function registerUser(userId, firstName, lastName, username, languageCode)
       RETURNING *
     `, [userId, firstName, lastName || null, username || null, languageCode || 'ru']);
     
-    console.log(`✅ Пользователь ${userId} успешно зарегистрирован:`, result.rows[0]);
+    console.log(`✅ Пользователь ${userId} успешно зарегистрирован в БД`);
     
     users.set(userId.toString(), {
       id: userId,
@@ -213,28 +225,20 @@ async function registerUser(userId, firstName, lastName, username, languageCode)
     
     return true;
   } catch (error) {
-    console.error(`❌ Ошибка регистрации пользователя ${userId}:`, error);
+    console.error(`❌ Ошибка регистрации в БД для пользователя ${userId}:`, error.message);
     
-    // Дополнительная диагностика
-    if (error.code === '42703') { // Ошибка отсутствующего столбца
-      console.error('🔍 Возможные причины:');
-      console.error('1. Неправильная структура таблицы users');
-      console.error('2. Несоответствие между запросом и структурой таблицы');
-      
-      // Попробуем получить структуру таблицы
-      try {
-        const tableInfo = await pool.query(`
-          SELECT column_name, data_type 
-          FROM information_schema.columns 
-          WHERE table_name = 'users'
-        `);
-        console.error('📊 Текущая структура таблицы users:', tableInfo.rows);
-      } catch (infoError) {
-        console.error('❌ Не удалось получить информацию о таблице:', infoError);
-      }
-    }
+    // Добавляем пользователя только в память
+    users.set(userId.toString(), {
+      id: userId,
+      first_name: firstName,
+      last_name: lastName,
+      username: username,
+      language_code: languageCode,
+      registered: false
+    });
     
-    return false;
+    console.log(`⚠️ Пользователь ${userId} добавлен только в память`);
+    return true;
   }
 }
 
@@ -246,7 +250,6 @@ function generateAccessCode() {
 // -----------------------------
 // Обработчики команд
 // -----------------------------
-// Обработчик команды /start
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
@@ -257,49 +260,26 @@ bot.onText(/\/start/, async (msg) => {
   
   console.log(`👤 Пользователь ${userId} начал работу с ботом`);
   
-  try {
-    // Сначала попробуем просто добавить пользователя в память
-    users.set(userId.toString(), {
-      id: userId,
-      first_name: firstName,
-      last_name: lastName,
-      username: username,
-      language_code: languageCode,
-      registered: false // Отмечаем как не зарегистрированного в БД
-    });
-    
-    // Пытаемся зарегистрировать в БД, но не блокируем работу при ошибке
-    const registered = await registerUser(userId, firstName, lastName, username, languageCode);
-    
-    if (!registered) {
-      console.log(`⚠️ Пользователь ${userId} добавлен только в память (ошибка БД)`);
-      bot.sendMessage(chatId, 'Добро пожаловать! БД временно недоступна, но вы можете пользоваться ботом.');
-    }
-    
-    // Отправляем меню в любом случае
-    sendMainMenu(chatId, userId);
-    
-  } catch (error) {
-    console.error(`❌ Критическая ошибка в обработчике /start:`, error);
-    bot.sendMessage(chatId, '❌ Произошла критическая ошибка. Попробуйте позже.');
+  const registered = await registerUser(userId, firstName, lastName, username, languageCode);
+  
+  if (!registered) {
+    bot.sendMessage(chatId, 'Добро пожаловать! БД временно недоступна, но вы можете пользоваться ботом.');
   }
+  
+  sendMainMenu(chatId, userId);
 });
 
-// Обработчик команды /code
 bot.onText(/\/code/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-  
   console.log(`🔑 Пользователь ${userId} запросил код доступа`);
   sendAccessCode(chatId, userId);
 });
 
-// Обработчик команды /users
 bot.onText(/\/users/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
-  // Проверяем, является ли пользователь администратором
   if (ADMIN_ID && ADMIN_ID.toString() === userId.toString()) {
     const userCount = users.size;
     const activeUsers = await getActiveUsersCount();
@@ -313,41 +293,27 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
-// Обработчик текстовых сообщений
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   const userId = msg.from.id;
   
-  // Игнорируем команды (они обрабатываются отдельно)
-  if (text && text.startsWith('/')) {
-    return;
-  }
+  if (text && text.startsWith('/')) return;
   
-  // Обработка текстовых кнопок
   if (text === '🔑 Получить код доступа') {
     sendAccessCode(chatId, userId);
   } else if (text === '🗺 Открыть карту') {
     bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
       reply_markup: {
-        inline_keyboard: [
-          [{
-            text: 'Перейти к карте',
-            url: MAP_URL
-          }]
-        ]
+        inline_keyboard: [[{ text: 'Перейти к карте', url: MAP_URL }]]
       }
     });
   }
 });
 
-// -----------------------------
-// Обработчик callback-запросов
-// -----------------------------
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const userId = query.from.id;
-  const messageId = query.message.message_id;
   
   try {
     if (query.data === 'get_code') {
@@ -356,12 +322,7 @@ bot.on('callback_query', async (query) => {
     } else if (query.data === 'open_map') {
       bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
         reply_markup: {
-          inline_keyboard: [
-            [{
-              text: 'Перейти к карте',
-              url: MAP_URL
-            }]
-          ]
+          inline_keyboard: [[{ text: 'Перейти к карте', url: MAP_URL }]]
         }
       });
       bot.answerCallbackQuery(query.id);
@@ -375,95 +336,60 @@ bot.on('callback_query', async (query) => {
 // -----------------------------
 // Вспомогательные функции
 // -----------------------------
-// Отправка главного меню
 function sendMainMenu(chatId, userId) {
   const keyboard = {
     reply_markup: {
-      keyboard: [
-        ['🔑 Получить код доступа', '🗺 Открыть карту']
-      ],
+      keyboard: [['🔑 Получить код доступа', '🗺 Открыть карту']],
       resize_keyboard: true,
       one_time_keyboard: false
     }
   };
   
-  const message = `
-🌍 Добро пожаловать в GENESIS WAR MAP!
-
-Нажмите на кнопку ниже для получения кода доступа к карте.
-  `;
+  const message = `🌍 Добро пожаловать в GENESIS WAR MAP!\n\nНажмите на кнопку ниже для получения кода доступа к карте.`;
   
   bot.sendMessage(chatId, message, keyboard);
 }
 
-// Отправка кода доступа
 async function sendAccessCode(chatId, userId) {
   try {
-    // Генерируем новый код
     const code = generateAccessCode();
-    
     console.log(`🔐 Генерация кода ${code} для пользователя ${userId}`);
     
-    // Сохраняем код через API
-    const response = await fetch(`${API_URL}/api/save-code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        code,
-        userId
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error('Не удалось сохранить код');
+    try {
+      const response = await fetch(`${API_URL}/api/save-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, userId })
+      });
+      
+      if (!response.ok) throw new Error(`API вернул статус ${response.status}`);
+      console.log(`✅ Код ${code} сохранен через API`);
+    } catch (apiError) {
+      console.error('❌ Ошибка сохранения кода через API:', apiError.message);
     }
     
-    // Отправляем код пользователю
-    const message = `
-🔑 Ваш код доступа к карте:
-
-\`\`\`
-${code}
-\`\`\`
-
-Код действителен 5 минут. Скопируйте его и введите на сайте.
-    `;
+    const message = `🔑 Ваш код доступа к карте:\n\n\`\`\`\n${code}\n\`\`\`\n\nКод действителен 5 минут. Скопируйте его и введите на сайте.`;
     
     await bot.sendMessage(chatId, message, {
       parse_mode: 'MarkdownV2',
       reply_markup: {
         inline_keyboard: [
-          [{
-            text: '🔄 Получить новый код',
-            callback_data: 'get_code'
-          }],
-          [{
-            text: '🗺 Открыть карту',
-            callback_data: 'open_map'
-          }]
+          [{ text: '🔄 Получить новый код', callback_data: 'get_code' }],
+          [{ text: '🗺 Открыть карту', callback_data: 'open_map' }]
         ]
       }
     });
     
     console.log(`✅ Код ${code} отправлен пользователю ${userId}`);
-    
   } catch (error) {
     console.error('❌ Error generating code:', error);
     bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
   }
 }
 
-// Получение количества активных пользователей
 async function getActiveUsersCount() {
   try {
-    const result = await pool.query(`
-      SELECT COUNT(*) as count 
-      FROM users 
-      WHERE created_at >= NOW() - INTERVAL '1 day'
-    `);
-    
+    const result = await pool.query(`SELECT COUNT(*) as count FROM public.users WHERE created_at >= NOW() - INTERVAL '1 day'`);
     return parseInt(result.rows[0].count, 10);
   } catch (error) {
     console.error('❌ Ошибка получения статистики:', error);
@@ -471,9 +397,7 @@ async function getActiveUsersCount() {
   }
 }
 
-// -----------------------------
 // Graceful shutdown
-// -----------------------------
 async function cleanUp() {
   console.log('🛑 Received shutdown signal, stopping bot…');
   try {
@@ -504,10 +428,8 @@ process.on('SIGTERM', cleanUp);
 // -----------------------------
 (async () => {
   try {
-    // Загружаем пользователей
     await loadUsers();
     
-    // Настраиваем webhook или polling
     if (process.env.RENDER_EXTERNAL_HOSTNAME) {
       await setupWebhook();
     } else {
