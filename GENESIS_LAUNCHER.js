@@ -212,17 +212,16 @@ async function checkConnections() {
     const apiStart = Date.now();
     const apiResponse = await fetch(`${API_URL}/health`);
     const apiTime = Date.now() - apiStart;
-    const apiText = await apiResponse.text();
     
     if (apiResponse.ok) {
       results.api = { 
         status: '✅', 
-        message: `API: OK (${apiTime}ms) - ${apiText}`
+        message: `API: OK (${apiTime}ms)`
       };
     } else {
       results.api = { 
         status: '❌', 
-        message: `API: ERROR ${apiResponse.status} - ${apiText}`
+        message: `API: ERROR ${apiResponse.status}`
       };
     }
   } catch (error) {
@@ -272,29 +271,30 @@ function sendAdminPanel(chatId) {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '📊 Статистика пользователей', callback_data: 'admin_stats' },
+          { text: '📊 Статистика', callback_data: 'admin_stats' },
           { text: '🔍 Проверить связи', callback_data: 'admin_check' }
         ],
         [
-          { text: '👥 Список пользователей', callback_data: 'admin_users' },
-          { text: '🔄 Обновить', callback_data: 'admin_refresh' }
+          { text: '👥 Список пользователей', callback_data: 'admin_users' }
         ],
         [
-          { text: '⬅️ Назад в меню', callback_data: 'back_to_menu' }
+          { text: '🔑 Получить код', callback_data: 'get_code' },
+          { text: '🗺 Открыть карту', callback_data: 'open_map' }
+        ],
+        [
+          { text: '⬅️ Главное меню', callback_data: 'main_menu' }
         ]
       ]
     }
   };
   
-  const message = `
-🛠 *Панель администратора*
-
-Выберите действие:
-  `;
+  const message = `🛠 *Панель администратора*\n\nВыберите действие:`;
   
   bot.sendMessage(chatId, message, { 
     parse_mode: 'Markdown',
     ...keyboard 
+  }).catch(error => {
+    console.error('❌ Ошибка отправки админ-панели:', error);
   });
 }
 
@@ -316,13 +316,8 @@ bot.onText(/\/start/, async (msg) => {
   // Регистрируем пользователя
   await registerUser(userId, firstName, lastName, username, languageCode);
   
-  // Если пользователь - администратор, показываем админ-панель
-  if (isAdmin(userId)) {
-    sendAdminPanel(chatId);
-  } else {
-    // Отправляем обычное меню
-    sendMainMenu(chatId, userId);
-  }
+  // Отправляем главное меню
+  sendMainMenu(chatId, userId);
 });
 
 // Обработчик команды /code
@@ -349,6 +344,22 @@ bot.onText(/\/admin/, async (msg) => {
   }
   
   sendAdminPanel(chatId);
+});
+
+// Обработчик команды /map
+bot.onText(/\/map/, async (msg) => {
+  const chatId = msg.chat.id;
+  
+  bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{
+          text: '🗺 Перейти к карте',
+          url: MAP_URL
+        }]
+      ]
+    }
+  });
 });
 
 // Обработчик команды /users
@@ -378,6 +389,35 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
+// Обработчик текстовых сообщений (для кнопок главного меню)
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const text = msg.text;
+  
+  // Пропускаем команды
+  if (text.startsWith('/')) return;
+  
+  console.log(`📨 Текстовое сообщение от ${userId}: ${text}`);
+  
+  if (text === '🔑 Получить код доступа') {
+    sendAccessCode(chatId, userId);
+  } else if (text === '🗺 Открыть карту') {
+    bot.sendMessage(chatId, `🌐 Откройте карту по ссылке:\n${MAP_URL}`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{
+            text: '🗺 Перейти к карте',
+            url: MAP_URL
+          }]
+        ]
+      }
+    });
+  } else if (text === '🛠 Админ-панель' && isAdmin(userId)) {
+    sendAdminPanel(chatId);
+  }
+});
+
 // -----------------------------
 // Обработчик callback-запросов
 // -----------------------------
@@ -400,21 +440,17 @@ bot.on('callback_query', async (query) => {
         reply_markup: {
           inline_keyboard: [
             [{
-              text: 'Перейти к карте',
+              text: '🗺 Перейти к карте',
               url: MAP_URL
             }]
           ]
         }
       });
-    } else if (data === 'back_to_menu') {
-      if (isAdmin(userId)) {
-        sendAdminPanel(chatId);
-      } else {
-        sendMainMenu(chatId, userId);
-      }
+    } else if (data === 'main_menu') {
+      sendMainMenu(chatId, userId);
     }
     
-    // Админ-команды
+    // Админ-команды (только для администратора)
     else if (data.startsWith('admin_')) {
       if (!isAdmin(userId)) {
         bot.sendMessage(chatId, '❌ У вас нет прав доступа.');
@@ -430,7 +466,6 @@ bot.on('callback_query', async (query) => {
         message += `📈 Активных за 7д: ${stats.active7d}\n\n`;
         message += `_Данные обновлены: ${new Date().toLocaleString('ru-RU')}_`;
         
-        // Редактируем сообщение вместо отправки нового
         bot.editMessageText(message, {
           chat_id: chatId,
           message_id: messageId,
@@ -443,7 +478,7 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '👥 Список пользователей', callback_data: 'admin_users' },
-                { text: '⬅️ Назад', callback_data: 'admin_refresh' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -470,7 +505,7 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '👥 Список пользователей', callback_data: 'admin_users' },
-                { text: '⬅️ Назад', callback_data: 'admin_refresh' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -505,22 +540,20 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '🔄 Обновить список', callback_data: 'admin_users' },
-                { text: '⬅️ Назад', callback_data: 'admin_refresh' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
         });
       }
-      else if (data === 'admin_refresh') {
-        // Просто обновляем админ-панель
-        sendAdminPanel(chatId);
-        // Удаляем старое сообщение
-        bot.deleteMessage(chatId, messageId);
-      }
     }
   } catch (error) {
     console.error('❌ Ошибка обработки callback:', error);
-    bot.answerCallbackQuery(query.id, { text: '❌ Произошла ошибка' });
+    try {
+      await bot.answerCallbackQuery(query.id, { text: '❌ Произошла ошибка' });
+    } catch (e) {
+      console.error('❌ Ошибка при ответе на callback:', e);
+    }
   }
 });
 
@@ -530,23 +563,33 @@ bot.on('callback_query', async (query) => {
 
 // Отправка главного меню
 function sendMainMenu(chatId, userId) {
+  const keyboardButtons = [
+    ['🔑 Получить код доступа', '🗺 Открыть карту']
+  ];
+  
+  // Добавляем кнопку админ-панели только для администратора
+  if (isAdmin(userId)) {
+    keyboardButtons.push(['🛠 Админ-панель']);
+  }
+  
   const keyboard = {
     reply_markup: {
-      keyboard: [
-        ['🔑 Получить код доступа', '🗺 Открыть карту']
-      ],
+      keyboard: keyboardButtons,
       resize_keyboard: true,
       one_time_keyboard: false
     }
   };
   
-  const message = `
-🌍 Добро пожаловать в GENESIS WAR MAP!
-
-Нажмите на кнопку ниже для получения кода доступа к карте.
-  `;
+  let message = `🌍 Добро пожаловать в GENESIS WAR MAP!\n\n`;
+  message += `Нажмите на кнопку ниже для получения кода доступа к карте.`;
   
-  bot.sendMessage(chatId, message, keyboard);
+  if (isAdmin(userId)) {
+    message += `\n\n👑 Вы вошли как администратор.`;
+  }
+  
+  bot.sendMessage(chatId, message, keyboard).catch(error => {
+    console.error('❌ Ошибка отправки главного меню:', error);
+  });
 }
 
 // Отправка кода доступа
@@ -569,24 +612,30 @@ async function sendAccessCode(chatId, userId) {
       })
     });
     
+    console.log(`📡 Ответ API при сохранении кода: ${response.status}`);
+    
     if (!response.ok) {
-      throw new Error('Не удалось сохранить код');
+      let errorDetails = '';
+      try {
+        const errorData = await response.text();
+        errorDetails = errorData;
+      } catch (e) {
+        errorDetails = 'Не удалось прочитать ответ';
+      }
+      throw new Error(`HTTP ${response.status}: ${errorDetails}`);
     }
     
     const result = await response.json();
     console.log('✅ Код сохранен в API:', result);
     
-    // Отправляем код пользователю с HTML разметкой
-    const message = `
-🔑 <b>Ваш код доступа к карте:</b>
-
-<code>${code}</code>
-
-Код действителен 5 минут. Скопируйте его и введите на сайте.
-    `;
+    // Отправляем код пользователю (БЕЗ HTML разметки)
+    const message = `🔑 *Ваш код доступа к карте:*\n\n` +
+                   `\`${code}\`\n\n` +
+                   `Код действителен 5 минут. Скопируйте его и введите на сайте.\n\n` +
+                   `Карта: ${MAP_URL}`;
     
     await bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
+      parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
           [{
@@ -603,9 +652,32 @@ async function sendAccessCode(chatId, userId) {
     
   } catch (error) {
     console.error('❌ Error generating code:', error);
-    bot.sendMessage(chatId, '❌ Произошла ошибка при генерации кода. Попробуйте позже.');
+    
+    let errorMessage = '❌ Произошла ошибка при генерации кода. Попробуйте позже.';
+    
+    // Более информативное сообщение об ошибке
+    if (error.message.includes('fetch') || error.message.includes('Network')) {
+      errorMessage = '❌ Ошибка соединения с сервером. Проверьте доступность API.';
+    } else if (error.message.includes('401') || error.message.includes('403')) {
+      errorMessage = '❌ Ошибка авторизации. Проверьте настройки API.';
+    } else if (error.message.includes('500')) {
+      errorMessage = '❌ Внутренняя ошибка сервера. Попробуйте позже.';
+    }
+    
+    bot.sendMessage(chatId, errorMessage);
   }
 }
+
+// -----------------------------
+// Обработка ошибок бота
+// -----------------------------
+bot.on('error', (error) => {
+  console.error('❌ Ошибка Telegram Bot:', error);
+});
+
+bot.on('polling_error', (error) => {
+  console.error('❌ Ошибка polling:', error);
+});
 
 // -----------------------------
 // Graceful shutdown
