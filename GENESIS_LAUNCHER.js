@@ -562,11 +562,6 @@ bot.on('callback_query', async (query) => {
         });
       }
       else if (data === 'admin_bot_api') {
-        if (!isAdmin(userId)) {
-          bot.sendMessage(chatId, '❌ У вас нет прав доступа.');
-          return;
-        }
-        
         const connectionStatus = await checkBotApiConnection();
         
         let message = `🤖 *Проверка связи Бот-API:*\n\n`;
@@ -643,8 +638,9 @@ function sendMainMenu(chatId, userId) {
   });
 }
 
-// Отправка кода доступа (улучшенная версия)
+// Отправка кода доступа (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 async function sendAccessCode(chatId, userId) {
+  let response;
   try {
     // Генерируем новый код
     const code = generateAccessCode();
@@ -658,7 +654,7 @@ async function sendAccessCode(chatId, userId) {
     
     try {
       // Сохраняем код через API
-      const response = await fetch(`${API_URL}/api/save-code`, {
+      response = await fetch(`${API_URL}/api/save-code`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -674,18 +670,16 @@ async function sendAccessCode(chatId, userId) {
       
       console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
       
+      // ВАЖНО: читаем тело ответа только ОДИН раз
+      const responseText = await response.text();
+      console.log('📄 Тело ответа:', responseText);
+      
       if (!response.ok) {
-        let errorDetails = '';
-        try {
-          const errorData = await response.json();
-          errorDetails = JSON.stringify(errorData);
-        } catch (e) {
-          errorDetails = await response.text();
-        }
-        throw new Error(`HTTP ${response.status}: ${errorDetails}`);
+        throw new Error(`HTTP ${response.status}: ${responseText}`);
       }
       
-      const result = await response.json();
+      // Парсим JSON только после проверки статуса
+      const result = JSON.parse(responseText);
       console.log('✅ Код сохранен в API:', result);
       
       // Если API вернул новый код (при конфликте), используем его
