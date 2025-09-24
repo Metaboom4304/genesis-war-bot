@@ -1,4 +1,3 @@
-// index.js - API для GENESIS WAR MAP
 import express from 'express';
 import cors from 'cors';
 import { Pool } from 'pg';
@@ -16,21 +15,13 @@ const __dirname = dirname(__filename);
 
 // --- Конфигурация ---
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://genesis-data.onrender.com';
-const CODE_LIFETIME = 5 * 60 * 1000; // 5 минут
+const CODE_LIFETIME = 5 * 60 * 1000;
+
+console.log('🔧 CORS Origin:', CORS_ORIGIN);
 
 // --- Инициализация Middleware ---
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https://*"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      frameSrc: ["'self'", "https://*.t.me", "https://*.telegram.org"]
-    }
-  }
+  contentSecurityPolicy: false
 }));
 
 app.use(compression());
@@ -44,14 +35,15 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
-// Настройка CORS
+// Исправленная настройка CORS
 app.use(cors({
   origin: CORS_ORIGIN,
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+
+app.options('*', cors());
 
 // --- Подключение к базе данных ---
 const pool = new Pool({
@@ -65,7 +57,6 @@ async function initDatabase() {
   try {
     console.log('🔧 Инициализация структуры базы данных...');
     
-    // Таблица пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id BIGINT PRIMARY KEY,
@@ -77,7 +68,6 @@ async function initDatabase() {
       );
     `);
     
-    // Таблица пользовательских меток
     await pool.query(`
       CREATE TABLE IF NOT EXISTS user_marks (
         user_id BIGINT NOT NULL,
@@ -92,7 +82,6 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_user_marks_tile_id ON user_marks(tile_id);
     `);
     
-    // Таблица кэшированных данных тайлов
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tiles (
         tile_id INTEGER PRIMARY KEY,
@@ -105,7 +94,6 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_tiles_tile_id ON tiles(tile_id);
     `);
     
-    // Таблица кодов доступа (ДОБАВЛЕНО)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS access_codes (
         code VARCHAR(6) PRIMARY KEY,
@@ -117,7 +105,6 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_access_codes_created ON access_codes(created_at);
     `);
     
-    // Таблица токенов доступа (ДОБАВЛЕНО)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS access_tokens (
         token VARCHAR(15) PRIMARY KEY,
@@ -162,7 +149,7 @@ async function cleanupOldTokens() {
   }
 }
 
-// --- Инициализация периодической очистки ---
+// Инициализация периодической очистки
 cleanupOldCodes();
 cleanupOldTokens();
 setInterval(cleanupOldCodes, 10 * 60 * 1000);
@@ -170,7 +157,7 @@ setInterval(cleanupOldTokens, 30 * 60 * 1000);
 
 // --- API Endpoints ---
 
-// Эндпоинт для сохранения кода (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// Эндпоинт для сохранения кода
 app.post('/api/save-code', async (req, res) => {
   console.log('💾 Получен запрос на сохранение кода:', req.body);
   
@@ -184,7 +171,6 @@ app.post('/api/save-code', async (req, res) => {
     });
   }
   
-  // Валидация кода (только цифры, длина 6)
   if (!/^\d{6}$/.test(code)) {
     return res.status(400).json({ 
       error: 'Код должен состоять из 6 цифр',
@@ -193,13 +179,11 @@ app.post('/api/save-code', async (req, res) => {
   }
   
   try {
-    // Сначала удаляем старые коды для этого пользователя
     await pool.query(`
       DELETE FROM access_codes 
       WHERE user_id = $1 OR created_at < NOW() - INTERVAL '10 minutes'
     `, [userId]);
     
-    // Сохраняем новый код
     const result = await pool.query(`
       INSERT INTO access_codes (code, user_id, created_at, used)
       VALUES ($1, $2, NOW(), false)
@@ -217,9 +201,7 @@ app.post('/api/save-code', async (req, res) => {
   } catch (error) {
     console.error('❌ Ошибка сохранения кода в БД:', error);
     
-    // Проверяем, если это ошибка уникальности (код уже существует)
-    if (error.code === '23505') { // unique_violation
-      // Генерируем новый код и пробуем снова
+    if (error.code === '23505') {
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
       console.log(`🔄 Код ${code} уже существует, пробуем новый: ${newCode}`);
       
@@ -257,10 +239,8 @@ app.post('/api/save-code', async (req, res) => {
 // Эндпоинт для проверки связи между ботом и API
 app.get('/api/bot-health', async (req, res) => {
   try {
-    // Проверяем соединение с БД
     await pool.query('SELECT 1');
     
-    // Проверяем существование таблицы access_codes
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -286,7 +266,7 @@ app.get('/api/bot-health', async (req, res) => {
   }
 });
 
-// Эндпоинт для проверки кода (вызывается фронтендом)
+// Эндпоинт для проверки кода
 app.post('/api/verify-code', async (req, res) => {
   const { code } = req.body;
   
@@ -297,7 +277,6 @@ app.post('/api/verify-code', async (req, res) => {
   }
   
   try {
-    // Проверяем код в БД
     const result = await pool.query(`
       SELECT * FROM access_codes 
       WHERE code = $1
@@ -312,30 +291,25 @@ app.post('/api/verify-code', async (req, res) => {
     const now = new Date();
     const codeAge = now - new Date(accessCode.created_at);
     
-    // Проверяем срок действия (5 минут)
     if (codeAge > CODE_LIFETIME) {
       console.log('❌ Код устарел:', code);
       await pool.query(`DELETE FROM access_codes WHERE code = $1`, [code]);
       return res.status(401).json({ error: 'Код устарел' });
     }
     
-    // Проверяем, использован ли код
     if (accessCode.used) {
       console.log('❌ Код уже использован:', code);
       return res.status(401).json({ error: 'Код уже использован' });
     }
     
-    // Помечаем код как использованный
     await pool.query(`
       UPDATE access_codes 
       SET used = true 
       WHERE code = $1
     `, [code]);
     
-    // Генерируем временный токен доступа (действителен 1 час)
     const accessToken = Math.random().toString(36).substr(2, 15);
     
-    // Сохраняем токен в БД
     await pool.query(`
       INSERT INTO access_tokens (token, user_id, expires_at)
       VALUES ($1, $2, $3)
@@ -367,7 +341,6 @@ app.post('/api/check-access', async (req, res) => {
   }
   
   try {
-    // Проверяем токен в БД
     const result = await pool.query(`
       SELECT * FROM access_tokens 
       WHERE token = $1
@@ -402,7 +375,6 @@ app.get('/api/marks/:userId', async (req, res) => {
       return res.status(401).json({ error: 'Требуется авторизация' });
     }
     
-    // Проверяем токен
     const tokenResult = await pool.query(`
       SELECT * FROM access_tokens 
       WHERE token = $1
@@ -412,7 +384,6 @@ app.get('/api/marks/:userId', async (req, res) => {
       return res.status(403).json({ error: 'Доступ запрещен' });
     }
     
-    // Проверяем срок действия токена
     const tokenData = tokenResult.rows[0];
     const now = new Date();
     
@@ -421,7 +392,6 @@ app.get('/api/marks/:userId', async (req, res) => {
       return res.status(401).json({ error: 'Токен устарел' });
     }
     
-    // Получаем метки пользователя
     const result = await pool.query(
       `SELECT tile_id, mark_type, comment 
        FROM user_marks 
@@ -449,7 +419,6 @@ app.post('/api/marks', async (req, res) => {
       return res.status(401).json({ error: 'Требуется авторизация' });
     }
     
-    // Проверяем токен
     const tokenResult = await pool.query(`
       SELECT * FROM access_tokens 
       WHERE token = $1
@@ -459,7 +428,6 @@ app.post('/api/marks', async (req, res) => {
       return res.status(403).json({ error: 'Доступ запрещен' });
     }
     
-    // Проверяем срок действия токена
     const tokenData = tokenResult.rows[0];
     const now = new Date();
     
@@ -468,14 +436,12 @@ app.post('/api/marks', async (req, res) => {
       return res.status(401).json({ error: 'Токен устарел' });
     }
     
-    // Валидация
     if (!user_id || !tile_id || !mark_type) {
        return res.status(400).json({ 
         error: 'Отсутствуют обязательные поля: user_id, tile_id, mark_type' 
        });
     }
     
-    // Дополнительная валидация
     const VALID_MARK_TYPES = ['ally', 'enemy', 'favorite', 'clear'];
     if (!VALID_MARK_TYPES.includes(mark_type)) {
       return res.status(400).json({ 
@@ -486,7 +452,6 @@ app.post('/api/marks', async (req, res) => {
     let query, values;
     
     if (mark_type === 'clear') {
-        // Удаление метки
         query = 'DELETE FROM user_marks WHERE user_id = $1 AND tile_id = $2';
         values = [user_id, tile_id];
         await pool.query(query, values);
@@ -494,7 +459,6 @@ app.post('/api/marks', async (req, res) => {
           message: 'Метка удалена' 
         });
     } else {
-        // Создание или обновление метки
         query = `
             INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
             VALUES ($1, $2, $3, $4)
@@ -532,7 +496,6 @@ app.get('/api/tiles/bounds', async (req, res) => {
       return res.status(401).json({ error: 'Требуется авторизация' });
     }
     
-    // Проверяем токен
     const tokenResult = await pool.query(`
       SELECT * FROM access_tokens 
       WHERE token = $1
@@ -542,7 +505,6 @@ app.get('/api/tiles/bounds', async (req, res) => {
       return res.status(401).json({ error: 'Токен недействителен' });
     }
     
-    // Проверяем срок действия токена
     const tokenData = tokenResult.rows[0];
     const now = new Date();
     
@@ -551,7 +513,6 @@ app.get('/api/tiles/bounds', async (req, res) => {
       return res.status(401).json({ error: 'Токен устарел' });
     }
     
-    // Валидация и парсинг параметров
     const bounds = {
       west: parseFloat(west),
       south: parseFloat(south),
@@ -587,7 +548,6 @@ app.get('/api/tiles/bounds', async (req, res) => {
       queryLimit, queryOffset
     ]);
 
-    // Строгая валидация данных
     const tiles = result.rows.map(row => ({
       id: row.tile_id,
       lat: parseFloat(row.lat),
@@ -595,7 +555,6 @@ app.get('/api/tiles/bounds', async (req, res) => {
       has_owner: row.has_owner ? 'true' : 'false'
     }));
 
-    // Подсчет общего количества для пагинации
     const countResult = await pool.query(`
       SELECT COUNT(*) as count
       FROM tiles 
