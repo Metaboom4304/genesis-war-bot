@@ -115,6 +115,7 @@ async function initDatabase() {
       );
       
       CREATE INDEX IF NOT EXISTS idx_access_codes_created ON access_codes(created_at);
+      CREATE INDEX IF NOT EXISTS idx_access_codes_user ON access_codes(user_id);
     `);
     
     // Таблица токенов доступа (ДОБАВЛЕНО)
@@ -170,35 +171,119 @@ setInterval(cleanupOldTokens, 30 * 60 * 1000);
 
 // --- API Endpoints ---
 
-// Эндпоинт для сохранения кода (вызывается ботом)
+// Эндпоинт для сохранения кода (улучшенная версия)
 app.post('/api/save-code', async (req, res) => {
+  console.log('💾 Получен запрос на сохранение кода:', req.body);
+  
   const { code, userId } = req.body;
   
-  console.log('💾 Попытка сохранения кода:', { code, userId });
-  
   if (!code || !userId) {
-    console.log('❌ Отсутствуют обязательные параметры');
-    return res.status(400).json({ error: 'Отсутствуют обязательные параметры' });
+    console.log('❌ Отсутствуют обязательные параметры:', { code, userId });
+    return res.status(400).json({ 
+      error: 'Отсутствуют обязательные параметры',
+      received: { code, userId }
+    });
+  }
+  
+  // Валидация кода (только цифры, длина 6)
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ 
+      error: 'Код должен состоять из 6 цифр',
+      received: code 
+    });
   }
   
   try {
-    // Сохраняем код в БД
+    // Сначала удаляем старые коды для этого пользователя
+    await pool.query(`
+      DELETE FROM access_codes 
+      WHERE user_id = $1 OR created_at < NOW() - INTERVAL '10 minutes'
+    `, [userId]);
+    
+    // Сохраняем новый код
     const result = await pool.query(`
-      INSERT INTO access_codes (code, user_id)
-      VALUES ($1, $2)
-      ON CONFLICT (code) 
-      DO UPDATE SET 
-        user_id = EXCLUDED.user_id,
-        created_at = NOW(),
-        used = false
+      INSERT INTO access_codes (code, user_id, created_at, used)
+      VALUES ($1, $2, NOW(), false)
       RETURNING *
     `, [code, userId]);
     
     console.log('✅ Код успешно сохранен в БД:', result.rows[0]);
-    res.json({ success: true, savedCode: result.rows[0] });
+    
+    res.json({ 
+      success: true, 
+      message: 'Код сохранен',
+      savedCode: result.rows[0]
+    });
+    
   } catch (error) {
-    console.error('❌ Ошибка сохранения кода:', error);
-    res.status(500).json({ error: 'Не удалось сохранить код' });
+    console.error('❌ Ошибка сохранения кода в БД:', error);
+    
+    // Проверяем, если это ошибка уникальности (код уже существует)
+    if (error.code === '23505') { // unique_violation
+      // Генерируем новый код и пробуем снова
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      console.log(`🔄 Код ${code} уже существует, пробуем новый: ${newCode}`);
+      
+      try {
+        const retryResult = await pool.query(`
+          INSERT INTO access_codes (code, user_id, created_at, used)
+          VALUES ($1, $2, NOW(), false)
+          RETURNING *
+        `, [newCode, userId]);
+        
+        console.log('✅ Новый код успешно сохранен:', retryResult.rows[0]);
+        
+        res.json({ 
+          success: true, 
+          message: 'Код сохранен (был сгенерирован новый из-за конфликта)',
+          savedCode: retryResult.rows[0],
+          newCode: newCode
+        });
+      } catch (retryError) {
+        console.error('❌ Ошибка при повторной попытке:', retryError);
+        res.status(500).json({ 
+          error: 'Не удалось сохранить код после повторной попытки',
+          details: retryError.message 
+        });
+      }
+    } else {
+      res.status(500).json({ 
+        error: 'Не удалось сохранить код',
+        details: error.message 
+      });
+    }
+  }
+});
+
+// Эндпоинт для проверки связи между ботом и API
+app.get('/api/bot-health', async (req, res) => {
+  try {
+    // Проверяем соединение с БД
+    await pool.query('SELECT 1');
+    
+    // Проверяем наличие таблицы access_codes
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'access_codes'
+      );
+    `);
+    
+    res.json({
+      status: 'ok',
+      service: 'genesis-war-api',
+      database: 'connected',
+      access_codes_table: tableCheck.rows[0].exists,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      service: 'genesis-war-api',
+      database: 'disconnected',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -210,6 +295,11 @@ app.post('/api/verify-code', async (req, res) => {
   
   if (!code) {
     return res.status(400).json({ error: 'Код не указан' });
+  }
+  
+  // Валидация кода
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'Неверный формат кода' });
   }
   
   try {
