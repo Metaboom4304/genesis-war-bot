@@ -115,7 +115,6 @@ async function initDatabase() {
       );
       
       CREATE INDEX IF NOT EXISTS idx_access_codes_created ON access_codes(created_at);
-      CREATE INDEX IF NOT EXISTS idx_access_codes_user ON access_codes(user_id);
     `);
     
     // Таблица токенов доступа (ДОБАВЛЕНО)
@@ -171,7 +170,7 @@ setInterval(cleanupOldTokens, 30 * 60 * 1000);
 
 // --- API Endpoints ---
 
-// Эндпоинт для сохранения кода (улучшенная версия)
+// Эндпоинт для сохранения кода (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 app.post('/api/save-code', async (req, res) => {
   console.log('💾 Получен запрос на сохранение кода:', req.body);
   
@@ -261,7 +260,7 @@ app.get('/api/bot-health', async (req, res) => {
     // Проверяем соединение с БД
     await pool.query('SELECT 1');
     
-    // Проверяем наличие таблицы access_codes
+    // Проверяем существование таблицы access_codes
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -295,11 +294,6 @@ app.post('/api/verify-code', async (req, res) => {
   
   if (!code) {
     return res.status(400).json({ error: 'Код не указан' });
-  }
-  
-  // Валидация кода
-  if (!/^\d{6}$/.test(code)) {
-    return res.status(400).json({ error: 'Неверный формат кода' });
   }
   
   try {
