@@ -248,6 +248,20 @@ async function checkConnections() {
   return results;
 }
 
+// Проверка связи между ботом и API
+async function checkBotApiConnection() {
+  try {
+    console.log('🔍 Проверка связи бот-API...');
+    const response = await fetch(`${API_URL}/api/bot-health`);
+    const result = await response.json();
+    console.log('✅ Статус связи бот-API:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ Ошибка проверки связи бот-API:', error);
+    return { status: 'error', error: error.message };
+  }
+}
+
 // Получение списка пользователей
 async function getUsersList(limit = 50) {
   try {
@@ -275,7 +289,8 @@ function sendAdminPanel(chatId) {
           { text: '🔍 Проверить связи', callback_data: 'admin_check' }
         ],
         [
-          { text: '👥 Список пользователей', callback_data: 'admin_users' }
+          { text: '👥 Список пользователей', callback_data: 'admin_users' },
+          { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' }
         ],
         [
           { text: '🔑 Получить код', callback_data: 'get_code' },
@@ -546,6 +561,42 @@ bot.on('callback_query', async (query) => {
           }
         });
       }
+      else if (data === 'admin_bot_api') {
+        if (!isAdmin(userId)) {
+          bot.sendMessage(chatId, '❌ У вас нет прав доступа.');
+          return;
+        }
+        
+        const connectionStatus = await checkBotApiConnection();
+        
+        let message = `🤖 *Проверка связи Бот-API:*\n\n`;
+        message += `🕐 Время проверки: ${new Date().toLocaleString('ru-RU')}\n`;
+        message += `📊 Статус: ${connectionStatus.status === 'ok' ? '✅ OK' : '❌ ERROR'}\n`;
+        
+        if (connectionStatus.status === 'ok') {
+          message += `🗄️ База данных: ${connectionStatus.database}\n`;
+          message += `⏱️ Время ответа: ${new Date().toISOString()}\n`;
+        } else {
+          message += `🔧 Ошибка: ${connectionStatus.error}\n`;
+        }
+        
+        bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔄 Проверить снова', callback_data: 'admin_bot_api' },
+                { text: '🔍 Общая проверка', callback_data: 'admin_check' }
+              ],
+              [
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
+              ]
+            ]
+          }
+        });
+      }
     }
   } catch (error) {
     console.error('❌ Ошибка обработки callback:', error);
@@ -592,79 +643,130 @@ function sendMainMenu(chatId, userId) {
   });
 }
 
-// Отправка кода доступа
+// Отправка кода доступа (улучшенная версия)
 async function sendAccessCode(chatId, userId) {
   try {
     // Генерируем новый код
     const code = generateAccessCode();
     
     console.log(`🔐 Генерация кода для пользователя ${userId}: ${code}`);
+    console.log(`📡 Отправка запроса на: ${API_URL}/api/save-code`);
     
-    // Сохраняем код через API
-    const response = await fetch(`${API_URL}/api/save-code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        code,
-        userId
-      })
-    });
+    // Добавляем таймаут для запроса
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 секунд
     
-    console.log(`📡 Ответ API при сохранении кода: ${response.status}`);
-    
-    if (!response.ok) {
-      let errorDetails = '';
-      try {
-        const errorData = await response.text();
-        errorDetails = errorData;
-      } catch (e) {
-        errorDetails = 'Не удалось прочитать ответ';
+    try {
+      // Сохраняем код через API
+      const response = await fetch(`${API_URL}/api/save-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          code: code,
+          userId: userId
+        }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeout);
+      
+      console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
+      
+      if (!response.ok) {
+        let errorDetails = '';
+        try {
+          const errorData = await response.json();
+          errorDetails = JSON.stringify(errorData);
+        } catch (e) {
+          errorDetails = await response.text();
+        }
+        throw new Error(`HTTP ${response.status}: ${errorDetails}`);
       }
-      throw new Error(`HTTP ${response.status}: ${errorDetails}`);
+      
+      const result = await response.json();
+      console.log('✅ Код сохранен в API:', result);
+      
+      // Если API вернул новый код (при конфликте), используем его
+      const finalCode = result.newCode || code;
+      
+      // Отправляем код пользователю
+      const message = `🔑 *Ваш код доступа к карте:*\n\n` +
+                     `\`${finalCode}\`\n\n` +
+                     `*Код действителен 5 минут.*\n\n` +
+                     `1. Скопируйте код выше\n` +
+                     `2. Перейдите на сайт карты\n` +
+                     `3. Введите код в поле ввода\n\n` +
+                     `🌐 *Ссылка на карту:* ${MAP_URL}`;
+      
+      await bot.sendMessage(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: '🔄 Получить новый код',
+              callback_data: 'get_code'
+            }],
+            [{
+              text: '🗺 Открыть карту',
+              url: MAP_URL
+            }]
+          ]
+        }
+      });
+      
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      throw fetchError;
     }
     
-    const result = await response.json();
-    console.log('✅ Код сохранен в API:', result);
+  } catch (error) {
+    console.error('❌ Ошибка генерации кода:', error);
     
-    // Отправляем код пользователю (БЕЗ HTML разметки)
-    const message = `🔑 *Ваш код доступа к карте:*\n\n` +
-                   `\`${code}\`\n\n` +
-                   `Код действителен 5 минут. Скопируйте его и введите на сайте.\n\n` +
-                   `Карта: ${MAP_URL}`;
+    let errorMessage = '';
+    let errorDetails = '';
     
-    await bot.sendMessage(chatId, message, {
+    // Анализируем ошибку для пользовательского сообщения
+    if (error.name === 'AbortError') {
+      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за 10 секунд. Попробуйте позже.';
+      errorDetails = 'Timeout';
+    } else if (error.message.includes('Network') || error.message.includes('fetch')) {
+      errorMessage = '❌ *Ошибка сети*\n\nНе удалось соединиться с сервером. Проверьте интернет-соединение.';
+      errorDetails = 'Network error';
+    } else if (error.message.includes('401') || error.message.includes('403')) {
+      errorMessage = '❌ *Ошибка доступа*\n\nПроблемы с авторизацией на сервере.';
+      errorDetails = 'Auth error';
+    } else if (error.message.includes('500')) {
+      errorMessage = '❌ *Внутренняя ошибка сервера*\n\nСервер временно недоступен. Попробуйте через несколько минут.';
+      errorDetails = 'Server error';
+    } else {
+      errorMessage = '❌ *Ошибка генерации кода*\n\nПопробуйте еще раз или обратитесь к администратору.';
+      errorDetails = error.message;
+    }
+    
+    // Логируем детали ошибки
+    console.error(`🔴 Детали ошибки: ${errorDetails}`);
+    
+    // Отправляем сообщение об ошибке пользователю
+    await bot.sendMessage(chatId, errorMessage, { 
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
           [{
-            text: '🔄 Получить новый код',
+            text: '🔄 Попробовать снова',
             callback_data: 'get_code'
-          }],
-          [{
-            text: '🗺 Открыть карту',
-            callback_data: 'open_map'
           }]
         ]
       }
     });
     
-  } catch (error) {
-    console.error('❌ Error generating code:', error);
-    
-    let errorMessage = '❌ Произошла ошибка при генерации кода. Попробуйте позже.';
-    
-    // Более информативное сообщение об ошибке
-    if (error.message.includes('fetch') || error.message.includes('Network')) {
-      errorMessage = '❌ Ошибка соединения с сервером. Проверьте доступность API.';
-    } else if (error.message.includes('401') || error.message.includes('403')) {
-      errorMessage = '❌ Ошибка авторизации. Проверьте настройки API.';
-    } else if (error.message.includes('500')) {
-      errorMessage = '❌ Внутренняя ошибка сервера. Попробуйте позже.';
+    // Если пользователь - администратор, отправляем детали ошибки
+    if (isAdmin(userId)) {
+      await bot.sendMessage(chatId, `🔧 *Техническая информация:*\n\n\`${error.message}\``, {
+        parse_mode: 'Markdown'
+      });
     }
-    
-    bot.sendMessage(chatId, errorMessage);
   }
 }
 
