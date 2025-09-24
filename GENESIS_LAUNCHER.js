@@ -1,6 +1,3 @@
-// ============================
-// GENESIS_LAUNCHER.js (ESM) - Основной файл бота
-// ============================
 import 'dotenv/config';
 import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
@@ -152,11 +149,9 @@ function isAdmin(userId) {
 // Получение статистики пользователей
 async function getUsersStats() {
   try {
-    // Общее количество пользователей
     const totalResult = await pool.query('SELECT COUNT(*) as count FROM users');
     const totalUsers = parseInt(totalResult.rows[0].count, 10);
     
-    // Активные за последние 24 часа
     const activeResult = await pool.query(`
       SELECT COUNT(*) as count 
       FROM users 
@@ -164,7 +159,6 @@ async function getUsersStats() {
     `);
     const activeUsers = parseInt(activeResult.rows[0].count, 10);
     
-    // Активные за последнюю неделю
     const weeklyResult = await pool.query(`
       SELECT COUNT(*) as count 
       FROM users 
@@ -192,7 +186,6 @@ async function checkConnections() {
   };
   
   try {
-    // Проверка базы данных
     const dbStart = Date.now();
     const dbResult = await pool.query('SELECT 1 as test');
     const dbTime = Date.now() - dbStart;
@@ -208,7 +201,6 @@ async function checkConnections() {
   }
   
   try {
-    // Проверка API
     const apiStart = Date.now();
     const apiResponse = await fetch(`${API_URL}/health`);
     const apiTime = Date.now() - apiStart;
@@ -231,7 +223,6 @@ async function checkConnections() {
     };
   }
   
-  // Проверка бота
   try {
     const botInfo = await bot.getMe();
     results.bot = { 
@@ -328,10 +319,8 @@ bot.onText(/\/start/, async (msg) => {
   
   console.log(`🔄 Команда /start от пользователя ${userId} (@${username})`);
   
-  // Регистрируем пользователя
   await registerUser(userId, firstName, lastName, username, languageCode);
   
-  // Отправляем главное меню
   sendMainMenu(chatId, userId);
 });
 
@@ -352,7 +341,6 @@ bot.onText(/\/admin/, async (msg) => {
   
   console.log(`🛠 Команда /admin от пользователя ${userId}`);
   
-  // Проверяем права администратора
   if (!isAdmin(userId)) {
     bot.sendMessage(chatId, '❌ У вас нет прав доступа к админ-панели.');
     return;
@@ -382,7 +370,6 @@ bot.onText(/\/users/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
-  // Проверяем, является ли пользователь администратором
   if (!isAdmin(userId)) {
     bot.sendMessage(chatId, '❌ У вас нет прав для просмотра статистики.');
     return;
@@ -404,13 +391,12 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
-// Обработчик текстовых сообщений (для кнопок главного меню)
+// Обработчик текстовых сообщений
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const text = msg.text;
   
-  // Пропускаем команды
   if (text.startsWith('/')) return;
   
   console.log(`📨 Текстовое сообщение от ${userId}: ${text}`);
@@ -445,7 +431,6 @@ bot.on('callback_query', async (query) => {
   console.log(`🔄 Callback от пользователя ${userId}: ${data}`);
   
   try {
-    // Всегда отвечаем на callback query
     await bot.answerCallbackQuery(query.id);
     
     if (data === 'get_code') {
@@ -465,7 +450,6 @@ bot.on('callback_query', async (query) => {
       sendMainMenu(chatId, userId);
     }
     
-    // Админ-команды (только для администратора)
     else if (data.startsWith('admin_')) {
       if (!isAdmin(userId)) {
         bot.sendMessage(chatId, '❌ У вас нет прав доступа.');
@@ -613,7 +597,6 @@ function sendMainMenu(chatId, userId) {
     ['🔑 Получить код доступа', '🗺 Открыть карту']
   ];
   
-  // Добавляем кнопку админ-панели только для администратора
   if (isAdmin(userId)) {
     keyboardButtons.push(['🛠 Админ-панель']);
   }
@@ -638,22 +621,19 @@ function sendMainMenu(chatId, userId) {
   });
 }
 
-// Отправка кода доступа (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+// Отправка кода доступа
 async function sendAccessCode(chatId, userId) {
   let response;
   try {
-    // Генерируем новый код
     const code = generateAccessCode();
     
     console.log(`🔐 Генерация кода для пользователя ${userId}: ${code}`);
     console.log(`📡 Отправка запроса на: ${API_URL}/api/save-code`);
     
-    // Добавляем таймаут для запроса
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10 секунд
+    const timeout = setTimeout(() => controller.abort(), 15000);
     
     try {
-      // Сохраняем код через API
       response = await fetch(`${API_URL}/api/save-code`, {
         method: 'POST',
         headers: {
@@ -668,24 +648,18 @@ async function sendAccessCode(chatId, userId) {
       
       clearTimeout(timeout);
       
-      console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
-      
-      // ВАЖНО: читаем тело ответа только ОДИН раз
-      const responseText = await response.text();
-      console.log('📄 Тело ответа:', responseText);
+      console.log(`📡 Ответ API: ${response.status}`);
       
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${responseText}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
-      // Парсим JSON только после проверки статуса
-      const result = JSON.parse(responseText);
+      const result = await response.json();
       console.log('✅ Код сохранен в API:', result);
       
-      // Если API вернул новый код (при конфликте), используем его
       const finalCode = result.newCode || code;
       
-      // Отправляем код пользователю
       const message = `🔑 *Ваш код доступа к карте:*\n\n` +
                      `\`${finalCode}\`\n\n` +
                      `*Код действителен 5 минут.*\n\n` +
@@ -719,30 +693,19 @@ async function sendAccessCode(chatId, userId) {
     console.error('❌ Ошибка генерации кода:', error);
     
     let errorMessage = '';
-    let errorDetails = '';
     
-    // Анализируем ошибку для пользовательского сообщения
     if (error.name === 'AbortError') {
-      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за 10 секунд. Попробуйте позже.';
-      errorDetails = 'Timeout';
+      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за 15 секунд. Попробуйте позже.';
     } else if (error.message.includes('Network') || error.message.includes('fetch')) {
       errorMessage = '❌ *Ошибка сети*\n\nНе удалось соединиться с сервером. Проверьте интернет-соединение.';
-      errorDetails = 'Network error';
     } else if (error.message.includes('401') || error.message.includes('403')) {
       errorMessage = '❌ *Ошибка доступа*\n\nПроблемы с авторизацией на сервере.';
-      errorDetails = 'Auth error';
     } else if (error.message.includes('500')) {
       errorMessage = '❌ *Внутренняя ошибка сервера*\n\nСервер временно недоступен. Попробуйте через несколько минут.';
-      errorDetails = 'Server error';
     } else {
       errorMessage = '❌ *Ошибка генерации кода*\n\nПопробуйте еще раз или обратитесь к администратору.';
-      errorDetails = error.message;
     }
     
-    // Логируем детали ошибки
-    console.error(`🔴 Детали ошибки: ${errorDetails}`);
-    
-    // Отправляем сообщение об ошибке пользователю
     await bot.sendMessage(chatId, errorMessage, { 
       parse_mode: 'Markdown',
       reply_markup: {
@@ -755,7 +718,6 @@ async function sendAccessCode(chatId, userId) {
       }
     });
     
-    // Если пользователь - администратор, отправляем детали ошибки
     if (isAdmin(userId)) {
       await bot.sendMessage(chatId, `🔧 *Техническая информация:*\n\n\`${error.message}\``, {
         parse_mode: 'Markdown'
@@ -796,7 +758,6 @@ process.on('SIGTERM', cleanUp);
 // -----------------------------
 (async () => {
   try {
-    // Загружаем пользователей
     await loadUsers();
     
     console.log('✅ Бот инициализирован');
@@ -804,7 +765,6 @@ process.on('SIGTERM', cleanUp);
     console.log(`🌐 API URL: ${API_URL}`);
     console.log(`🗺 MAP URL: ${MAP_URL}`);
     
-    // Проверяем связи при старте
     if (ADMIN_ID) {
       console.log('🔍 Проверка связей при старте...');
       const connections = await checkConnections();
