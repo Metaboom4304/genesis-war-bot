@@ -39,6 +39,67 @@ const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = dirname(__filename);
 
 // -----------------------------
+// Улучшенная функция fetch с повторными попытками
+// -----------------------------
+async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeout);
+
+      // Обрабатываем ошибку 429 (Too Many Requests)
+      if (response.status === 429) {
+        const errorData = await response.json().catch(() => ({ 
+          message: 'Too Many Requests',
+          timestamp: new Date().toISOString()
+        }));
+        
+        if (i === retries - 1) {
+          throw new Error(`429 Too Many Requests: ${errorData.message}`);
+        }
+        
+        console.log(`🔄 Получена ошибка 429. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Экспоненциальная задержка
+        continue;
+      }
+
+      if (!response.ok) {
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+        } catch (e) {
+          errorMessage = await response.text();
+        }
+        throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+      }
+
+      return response;
+
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      
+      if (error.name === 'AbortError') {
+        console.log(`⏰ Таймаут запроса. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.`);
+      } else {
+        console.log(`🔄 Ошибка сети. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.:`, error.message);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= 2;
+    }
+  }
+}
+
+// -----------------------------
 // Express keep-alive
 // -----------------------------
 const app = express();
@@ -202,7 +263,7 @@ async function checkConnections() {
   
   try {
     const apiStart = Date.now();
-    const apiResponse = await fetch(`${API_URL}/health`);
+    const apiResponse = await fetchWithRetry(`${API_URL}/health`);
     const apiTime = Date.now() - apiStart;
     
     if (apiResponse.ok) {
@@ -211,9 +272,10 @@ async function checkConnections() {
         message: `API: OK (${apiTime}ms)`
       };
     } else {
+      const errorText = await apiResponse.text();
       results.api = { 
         status: '❌', 
-        message: `API: ERROR ${apiResponse.status}`
+        message: `API: ERROR ${apiResponse.status} - ${errorText}`
       };
     }
   } catch (error) {
@@ -232,18 +294,30 @@ async function checkConnections() {
   } catch (error) {
     results.bot = { 
       status: '❌', 
-      message: `Бот: ERROR - ${error.message}`
+      message: `Бot: ERROR - ${error.message}`
     };
   }
   
   return results;
 }
 
-// Проверка связи между ботом и API
+// Проверка связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ
 async function checkBotApiConnection() {
   try {
     console.log('🔍 Проверка связи бот-API...');
-    const response = await fetch(`${API_URL}/api/bot-health`);
+    const response = await fetchWithRetry(`${API_URL}/api/bot-health`);
+    
+    if (!response.ok) {
+      let errorMessage;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+      } catch (e) {
+        errorMessage = await response.text();
+      }
+      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+    }
+    
     const result = await response.json();
     console.log('✅ Статус связи бот-API:', result);
     return result;
@@ -400,7 +474,19 @@ bot.onText(/\/test_api/, async (msg) => {
   console.log(`🧪 Команда /test_api от пользователя ${userId}`);
   
   try {
-    const response = await fetch(`${API_URL}/api/debug`);
+    const response = await fetchWithRetry(`${API_URL}/api/debug`);
+    
+    if (!response.ok) {
+      let errorMessage;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+      } catch (e) {
+        errorMessage = await response.text();
+      }
+      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+    }
+    
     const data = await response.json();
     
     let message = `🔧 *Результат теста API:*\n\n`;
@@ -447,7 +533,19 @@ bot.on('message', async (msg) => {
     sendAdminPanel(chatId);
   } else if (text === '🐛 Тест API' && isAdmin(userId)) {
     try {
-      const response = await fetch(`${API_URL}/api/debug`);
+      const response = await fetchWithRetry(`${API_URL}/api/debug`);
+      
+      if (!response.ok) {
+        let errorMessage;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+        } catch (e) {
+          errorMessage = await response.text();
+        }
+        throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+      }
+      
       const data = await response.json();
       
       let message = `🔧 *Результат теста API:*\n\n`;
@@ -504,7 +602,19 @@ bot.on('callback_query', async (query) => {
       }
       
       try {
-        const response = await fetch(`${API_URL}/api/debug`);
+        const response = await fetchWithRetry(`${API_URL}/api/debug`);
+        
+        if (!response.ok) {
+          let errorMessage;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+          } catch (e) {
+            errorMessage = await response.text();
+          }
+          throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+        }
+        
         const data = await response.json();
         
         let message = `🔧 *Результат теста API:*\n\n`;
@@ -664,6 +774,9 @@ bot.on('callback_query', async (query) => {
         if (connectionStatus.status === 'ok') {
           message += `🗄️ База данных: ${connectionStatus.database}\n`;
           message += `⏱️ Время ответа: ${new Date().toISOString()}\n`;
+          if (connectionStatus.cached) {
+            message += `💾 Данные из кэша (возраст: ${connectionStatus.cacheAge} сек.)\n`;
+          }
         } else {
           message += `🔧 Ошибка: ${connectionStatus.error}\n`;
         }
@@ -733,80 +846,74 @@ function sendMainMenu(chatId, userId) {
 
 // Отправка кода доступа - УЛУЧШЕННАЯ ВЕРСИЯ
 async function sendAccessCode(chatId, userId) {
-  let response;
   try {
     const code = generateAccessCode();
     
     console.log(`🔐 Генерация кода для пользователя ${userId}: ${code}`);
     console.log(`📡 Отправка запроса на: ${API_URL}/api/save-code`);
     
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetchWithRetry(`${API_URL}/api/save-code`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        code: code,
+        userId: userId
+      })
+    });
     
-    try {
-      response = await fetch(`${API_URL}/api/save-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          code: code,
-          userId: userId
-        }),
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeout);
-      
-      console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Ошибка API: ${errorText}`);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
+    
+    if (!response.ok) {
+      let errorMessage;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+      } catch (e) {
+        errorMessage = await response.text();
       }
-      
-      const result = await response.json();
-      console.log('✅ Код сохранен в API:', result);
-      
-      const finalCode = result.newCode || code;
-      
-      const message = `🔑 *Ваш код доступа к карте:*\n\n` +
-                     `\`${finalCode}\`\n\n` +
-                     `*Код действителен 5 минут.*\n\n` +
-                     `1. Скопируйте код выше\n` +
-                     `2. Перейдите на сайт карты\n` +
-                     `3. Введите код в поле ввода\n\n` +
-                     `🌐 *Ссылка на карту:* ${MAP_URL}`;
-      
-      await bot.sendMessage(chatId, message, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{
-              text: '🔄 Получить новый код',
-              callback_data: 'get_code'
-            }],
-            [{
-              text: '🗺 Открыть карту',
-              url: MAP_URL
-            }]
-          ]
-        }
-      });
-      
-    } catch (fetchError) {
-      clearTimeout(timeout);
-      throw fetchError;
+      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
     }
+    
+    const result = await response.json();
+    console.log('✅ Код сохранен в API:', result);
+    
+    const finalCode = result.newCode || code;
+    
+    const message = `🔑 *Ваш код доступа к карте:*\n\n` +
+                   `\`${finalCode}\`\n\n` +
+                   `*Код действителен 5 минут.*\n\n` +
+                   `1. Скопируйте код выше\n` +
+                   `2. Перейдите на сайт карты\n` +
+                   `3. Введите код в поле ввода\n\n` +
+                   `🌐 *Ссылка на карту:* ${MAP_URL}`;
+    
+    await bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{
+            text: '🔄 Получить новый код',
+            callback_data: 'get_code'
+          }],
+          [{
+            text: '🗺 Открыть карту',
+            url: MAP_URL
+          }]
+        ]
+      }
+    });
     
   } catch (error) {
     console.error('❌ Ошибка генерации кода:', error);
     
     let errorMessage = '';
     
-    if (error.name === 'AbortError') {
-      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за 15 секунд. Попробуйте позже.';
+    if (error.message.includes('429')) {
+      errorMessage = '❌ *Слишком много запросов*\n\nСервер временно перегружен. Пожалуйста, подождите 1-2 минуты и попробуйте снова.';
+    } else if (error.name === 'AbortError' || error.message.includes('timeout')) {
+      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за отведенное время. Попробуйте позже.';
     } else if (error.message.includes('Network') || error.message.includes('fetch')) {
       errorMessage = '❌ *Ошибка сети*\n\nНе удалось соединиться с сервером. Проверьте интернет-соединение.';
     } else if (error.message.includes('401') || error.message.includes('403')) {
@@ -879,7 +986,7 @@ process.on('SIGTERM', cleanUp);
     // Тестируем соединение с API при старте
     console.log('🔍 Проверка связи с API при старте...');
     try {
-      const testResponse = await fetch(`${API_URL}/api/debug`);
+      const testResponse = await fetchWithRetry(`${API_URL}/api/debug`);
       const testData = await testResponse.json();
       console.log('✅ Связь с API установлена:', testData.status);
     } catch (error) {
