@@ -33,37 +33,85 @@ app.use(helmet({
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 
-// Ограничение количества запросов - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// УБИРАЕМ ОСНОВНОЙ RATE LIMITER - он вызывает проблемы
+// Вместо этого используем более мягкие настройки для конкретных эндпоинтов
+
+// ОЧЕНЬ МЯГКИЙ лимит для основных API эндпоинтов
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
+  max: 5000, // УВЕЛИЧИЛИ до 5000 запросов за 15 минут
+  message: JSON.stringify({
+    status: 'error',
+    error: 'Too Many Requests',
+    message: 'Слишком много запросов, попробуйте позже',
+    timestamp: new Date().toISOString()
+  }),
+  skip: (req) => {
+    // Пропускаем health-check и bot-health из ограничений
+    return req.path === '/health' || 
+           req.path === '/api/bot-health' ||
+           req.path === '/api/debug';
+  },
   handler: (req, res) => {
     res.status(429).json({
       status: 'error',
       error: 'Too Many Requests',
       message: 'Слишком много запросов, попробуйте позже',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      retryAfter: Math.floor(req.rateLimit.resetTime / 1000)
     });
   }
 });
 
+// ОЧЕНЬ МЯГКИЙ лимит для health-check эндпоинтов
 const healthCheckLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 120, // 120 requests per minute для health-check
+  max: 300, // УВЕЛИЧИЛИ до 300 запросов в минуту
+  message: JSON.stringify({
+    status: 'error',
+    error: 'Too Many Requests',
+    message: 'Слишком много проверок здоровья, подождите немного',
+    timestamp: new Date().toISOString()
+  }),
   handler: (req, res) => {
     res.status(429).json({
       status: 'error',
       error: 'Too Many Requests',
       message: 'Слишком много проверок здоровья, подождите немного',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      retryAfter: Math.floor(req.rateLimit.resetTime / 1000)
     });
   }
 });
 
-// Применяем лимиты
-app.use('/api/', apiLimiter);
+// Лимит для эндпоинтов аутентификации (более строгий)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 попыток аутентификации за 15 минут
+  message: JSON.stringify({
+    status: 'error',
+    error: 'Too Many Requests',
+    message: 'Слишком много попыток аутентификации',
+    timestamp: new Date().toISOString()
+  }),
+  handler: (req, res) => {
+    res.status(429).json({
+      status: 'error',
+      error: 'Too Many Requests',
+      message: 'Слишком много попыток аутентификации',
+      timestamp: new Date().toISOString(),
+      retryAfter: Math.floor(req.rateLimit.resetTime / 1000)
+    });
+  }
+});
+
+// Применяем лимиты ТОЛЬКО к конкретным эндпоинтам
+app.use('/api/save-code', authLimiter);
+app.use('/api/verify-code', authLimiter);
 app.use('/health', healthCheckLimiter);
 app.use('/api/bot-health', healthCheckLimiter);
+// Основной API лимитер применяем ко всем остальным API эндпоинтам
+app.use('/api/', apiLimiter);
 
 // ИСПРАВЛЕННАЯ настройка CORS
 app.use(cors({
@@ -98,6 +146,8 @@ app.options('*', cors());
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
@@ -179,7 +229,9 @@ async function cleanupOldCodes() {
       DELETE FROM access_codes WHERE created_at < $1
     `, [cutoffTime]);
     
-    console.log(`🧹 Очищено ${result.rowCount} старых кодов`);
+    if (result.rowCount > 0) {
+      console.log(`🧹 Очищено ${result.rowCount} старых кодов`);
+    }
   } catch (error) {
     console.error('❌ Ошибка очистки старых кодов:', error);
   }
@@ -192,7 +244,9 @@ async function cleanupOldTokens() {
       DELETE FROM access_tokens WHERE expires_at < $1
     `, [cutoffTime]);
     
-    console.log(`🧹 Очищено ${result.rowCount} старых токенов`);
+    if (result.rowCount > 0) {
+      console.log(`🧹 Очищено ${result.rowCount} старых токенов`);
+    }
   } catch (error) {
     console.error('❌ Ошибка очистки старых токенов:', error);
   }
@@ -211,7 +265,7 @@ function logRequest(endpoint, req) {
 
 // --- API Endpoints ---
 
-// Эндпоинт для сохранения кода
+// Эндпоинт для сохранения кода - УЛУЧШЕННАЯ ВЕРСИЯ
 app.post('/api/save-code', async (req, res) => {
   logRequest('POST /api/save-code', req);
   console.log('💾 Тело запроса:', req.body);
@@ -309,7 +363,9 @@ app.get('/api/bot-health', async (req, res) => {
   
   try {
     // Быстрая проверка подключения к БД
+    const dbStart = Date.now();
     await pool.query('SELECT 1 as test');
+    const dbTime = Date.now() - dbStart;
     
     const tableCheck = await pool.query(`
       SELECT EXISTS (
@@ -322,9 +378,14 @@ app.get('/api/bot-health', async (req, res) => {
       status: 'ok',
       service: 'genesis-war-api',
       database: 'connected',
+      database_response_time: `${dbTime}ms`,
       access_codes_table: tableCheck.rows[0].exists,
       timestamp: new Date().toISOString(),
-      cached: false
+      cached: false,
+      rate_limit_info: {
+        remaining: req.rateLimit?.remaining || 'unlimited',
+        limit: req.rateLimit?.limit || 'unlimited'
+      }
     };
     
     // Сохраняем в кэш
@@ -624,7 +685,7 @@ app.post('/api/marks', async (req, res) => {
   }
 });
 
-// Диагностический endpoint
+// Диагностический endpoint - БЕЗ ОГРАНИЧЕНИЙ
 app.get('/api/debug', async (req, res) => {
   logRequest('GET /api/debug', req);
   
@@ -642,11 +703,19 @@ app.get('/api/debug', async (req, res) => {
       }
     }
     
+    // Информация о rate limiting
+    const rateLimitInfo = {
+      remaining: req.rateLimit?.remaining || 'unlimited',
+      limit: req.rateLimit?.limit || 'unlimited',
+      resetTime: req.rateLimit?.resetTime || 'unlimited'
+    };
+    
     res.json({
       status: 'ok',
       service: 'genesis-war-api',
       database: 'connected',
       tables: results,
+      rate_limit: rateLimitInfo,
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development'
     });
@@ -659,11 +728,26 @@ app.get('/api/debug', async (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check endpoint - БЕЗ ОГРАНИЧЕНИЙ
 app.get('/health', (_req, res) => {
   res.status(200).json({ 
     status: 'ok', 
     service: 'genesis-war-api',
+    timestamp: new Date().toISOString(),
+    rate_limit_info: {
+      note: 'Health endpoint has very relaxed rate limits'
+    }
+  });
+});
+
+// Эндпоинт для проверки статуса rate limiting
+app.get('/api/rate-limit-status', (req, res) => {
+  res.json({
+    rateLimit: req.rateLimit ? {
+      remaining: req.rateLimit.remaining,
+      limit: req.rateLimit.limit,
+      resetTime: new Date(req.rateLimit.resetTime).toISOString()
+    } : 'no rate limiting applied',
     timestamp: new Date().toISOString()
   });
 });
@@ -672,6 +756,11 @@ app.get('/health', (_req, res) => {
 app.listen(port, async () => {
   console.log(`🚀 Сервер API запущен на порту ${port}`);
   console.log(`🌐 CORS настроен для нескольких origin-ов`);
+  console.log(`🔧 Rate limiting настроен с ОЧЕНЬ МЯГКИМИ лимитами:`);
+  console.log(`   - Основные API: 5000 запросов за 15 минут`);
+  console.log(`   - Health checks: 300 запросов за 1 минуту`);
+  console.log(`   - Аутентификация: 100 запросов за 15 минут`);
+  console.log(`   - /api/debug и /health: БЕЗ ограничений`);
   
   try {
     await initDatabase();
@@ -680,14 +769,12 @@ app.listen(port, async () => {
     console.log('   GET  /health');
     console.log('   GET  /api/bot-health');
     console.log('   GET  /api/debug');
+    console.log('   GET  /api/rate-limit-status');
     console.log('   POST /api/save-code');
     console.log('   POST /api/verify-code');
     console.log('   POST /api/check-access');
     console.log('   GET  /api/marks/:userId');
     console.log('   POST /api/marks');
-    console.log('🔧 Rate limiting настроен:');
-    console.log('   - Основные API: 1000 запросов за 15 минут');
-    console.log('   - Health checks: 120 запросов за 1 минуту');
   } catch (error) {
     console.error('❌ Критическая ошибка инициализации:', error);
   }
