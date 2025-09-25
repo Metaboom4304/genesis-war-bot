@@ -288,6 +288,7 @@ function sendAdminPanel(chatId) {
           { text: '🗺 Открыть карту', callback_data: 'open_map' }
         ],
         [
+          { text: '🐛 Тест API', callback_data: 'test_api' },
           { text: '⬅️ Главное меню', callback_data: 'main_menu' }
         ]
       ]
@@ -391,6 +392,34 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
+// Новая команда для тестирования API
+bot.onText(/\/test_api/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  console.log(`🧪 Команда /test_api от пользователя ${userId}`);
+  
+  try {
+    const response = await fetch(`${API_URL}/api/debug`);
+    const data = await response.json();
+    
+    let message = `🔧 *Результат теста API:*\n\n`;
+    message += `✅ Статус: ${data.status}\n`;
+    message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
+    
+    if (data.tables) {
+      message += `📊 *Таблицы БД:*\n`;
+      for (const [table, count] of Object.entries(data.tables)) {
+        message += `• ${table}: ${count}\n`;
+      }
+    }
+    
+    bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Ошибка теста API: ${error.message}`);
+  }
+});
+
 // Обработчик текстовых сообщений
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -416,6 +445,26 @@ bot.on('message', async (msg) => {
     });
   } else if (text === '🛠 Админ-панель' && isAdmin(userId)) {
     sendAdminPanel(chatId);
+  } else if (text === '🐛 Тест API' && isAdmin(userId)) {
+    try {
+      const response = await fetch(`${API_URL}/api/debug`);
+      const data = await response.json();
+      
+      let message = `🔧 *Результат теста API:*\n\n`;
+      message += `✅ Статус: ${data.status}\n`;
+      message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
+      
+      if (data.tables) {
+        message += `📊 *Таблицы БД:*\n`;
+        for (const [table, count] of Object.entries(data.tables)) {
+          message += `• ${table}: ${count}\n`;
+        }
+      }
+      
+      bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      bot.sendMessage(chatId, `❌ Ошибка теста API: ${error.message}`);
+    }
   }
 });
 
@@ -448,6 +497,57 @@ bot.on('callback_query', async (query) => {
       });
     } else if (data === 'main_menu') {
       sendMainMenu(chatId, userId);
+    } else if (data === 'test_api') {
+      if (!isAdmin(userId)) {
+        bot.sendMessage(chatId, '❌ У вас нет прав доступа.');
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${API_URL}/api/debug`);
+        const data = await response.json();
+        
+        let message = `🔧 *Результат теста API:*\n\n`;
+        message += `✅ Статус: ${data.status}\n`;
+        message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
+        
+        if (data.tables) {
+          message += `📊 *Таблицы БД:*\n`;
+          for (const [table, count] of Object.entries(data.tables)) {
+            message += `• ${table}: ${count}\n`;
+          }
+        }
+        
+        bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔄 Обновить', callback_data: 'test_api' },
+                { text: '📊 Статистика', callback_data: 'admin_stats' }
+              ],
+              [
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
+              ]
+            ]
+          }
+        });
+      } catch (error) {
+        bot.editMessageText(`❌ Ошибка теста API: ${error.message}`, {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔄 Попробовать снова', callback_data: 'test_api' },
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
+              ]
+            ]
+          }
+        });
+      }
     }
     
     else if (data.startsWith('admin_')) {
@@ -477,6 +577,9 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '👥 Список пользователей', callback_data: 'admin_users' },
+                { text: '🐛 Тест API', callback_data: 'test_api' }
+              ],
+              [
                 { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
@@ -504,6 +607,9 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '👥 Список пользователей', callback_data: 'admin_users' },
+                { text: '🐛 Тест API', callback_data: 'test_api' }
+              ],
+              [
                 { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
@@ -539,6 +645,9 @@ bot.on('callback_query', async (query) => {
               ],
               [
                 { text: '🔄 Обновить список', callback_data: 'admin_users' },
+                { text: '🐛 Тест API', callback_data: 'test_api' }
+              ],
+              [
                 { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
@@ -570,6 +679,7 @@ bot.on('callback_query', async (query) => {
                 { text: '🔍 Общая проверка', callback_data: 'admin_check' }
               ],
               [
+                { text: '🐛 Тест API', callback_data: 'test_api' },
                 { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
@@ -594,11 +704,11 @@ bot.on('callback_query', async (query) => {
 // Отправка главного меню
 function sendMainMenu(chatId, userId) {
   const keyboardButtons = [
-    ['🔑 Получить код доступа', '🗺 Открыть карту']
+    ['🔑 Получить код доступа', '🗺 Открыть карта']
   ];
   
   if (isAdmin(userId)) {
-    keyboardButtons.push(['🛠 Админ-панель']);
+    keyboardButtons.push(['🛠 Админ-панель', '🐛 Тест API']);
   }
   
   const keyboard = {
@@ -621,7 +731,7 @@ function sendMainMenu(chatId, userId) {
   });
 }
 
-// Отправка кода доступа
+// Отправка кода доступа - УЛУЧШЕННАЯ ВЕРСИЯ
 async function sendAccessCode(chatId, userId) {
   let response;
   try {
@@ -648,10 +758,11 @@ async function sendAccessCode(chatId, userId) {
       
       clearTimeout(timeout);
       
-      console.log(`📡 Ответ API: ${response.status}`);
+      console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
       
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`❌ Ошибка API: ${errorText}`);
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
@@ -764,6 +875,16 @@ process.on('SIGTERM', cleanUp);
     console.log(`👑 Администратор: ${ADMIN_ID || 'не задан'}`);
     console.log(`🌐 API URL: ${API_URL}`);
     console.log(`🗺 MAP URL: ${MAP_URL}`);
+    
+    // Тестируем соединение с API при старте
+    console.log('🔍 Проверка связи с API при старте...');
+    try {
+      const testResponse = await fetch(`${API_URL}/api/debug`);
+      const testData = await testResponse.json();
+      console.log('✅ Связь с API установлена:', testData.status);
+    } catch (error) {
+      console.error('❌ Ошибка связи с API:', error.message);
+    }
     
     if (ADMIN_ID) {
       console.log('🔍 Проверка связей при старте...');
