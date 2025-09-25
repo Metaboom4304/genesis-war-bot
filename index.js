@@ -18,6 +18,13 @@ const CODE_LIFETIME = 5 * 60 * 1000;
 
 console.log('🔧 Инициализация API сервера...');
 
+// --- Кэш для health-check ---
+let healthCheckCache = {
+  data: null,
+  timestamp: 0,
+  ttl: 30000 // 30 секунд кэширования
+};
+
 // --- Инициализация Middleware ---
 app.use(helmet({
   contentSecurityPolicy: false
@@ -26,13 +33,37 @@ app.use(helmet({
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 
-// Ограничение количества запросов
+// Ограничение количества запросов - ИСПРАВЛЕННАЯ ВЕРСИЯ
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  message: 'Слишком много запросов, попробуйте позже'
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+  handler: (req, res) => {
+    res.status(429).json({
+      status: 'error',
+      error: 'Too Many Requests',
+      message: 'Слишком много запросов, попробуйте позже',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
+
+const healthCheckLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 120, // 120 requests per minute для health-check
+  handler: (req, res) => {
+    res.status(429).json({
+      status: 'error',
+      error: 'Too Many Requests',
+      message: 'Слишком много проверок здоровья, подождите немного',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Применяем лимиты
 app.use('/api/', apiLimiter);
+app.use('/health', healthCheckLimiter);
+app.use('/api/bot-health', healthCheckLimiter);
 
 // ИСПРАВЛЕННАЯ настройка CORS
 app.use(cors({
@@ -261,12 +292,24 @@ app.post('/api/save-code', async (req, res) => {
   }
 });
 
-// Эндпоинт для проверки связи между ботом и API
+// Эндпоинт для проверки связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ
 app.get('/api/bot-health', async (req, res) => {
   logRequest('GET /api/bot-health', req);
   
+  // Проверяем кэш
+  const now = Date.now();
+  if (healthCheckCache.data && (now - healthCheckCache.timestamp < healthCheckCache.ttl)) {
+    console.log('✅ Возвращаем кэшированный результат health-check');
+    return res.json({
+      ...healthCheckCache.data,
+      cached: true,
+      cacheAge: Math.round((now - healthCheckCache.timestamp) / 1000)
+    });
+  }
+  
   try {
-    await pool.query('SELECT 1');
+    // Быстрая проверка подключения к БД
+    await pool.query('SELECT 1 as test');
     
     const tableCheck = await pool.query(`
       SELECT EXISTS (
@@ -275,20 +318,32 @@ app.get('/api/bot-health', async (req, res) => {
       );
     `);
     
-    res.json({
+    const healthData = {
       status: 'ok',
       service: 'genesis-war-api',
       database: 'connected',
       access_codes_table: tableCheck.rows[0].exists,
-      timestamp: new Date().toISOString()
-    });
+      timestamp: new Date().toISOString(),
+      cached: false
+    };
+    
+    // Сохраняем в кэш
+    healthCheckCache = {
+      data: healthData,
+      timestamp: now
+    };
+    
+    res.json(healthData);
   } catch (error) {
+    console.error('❌ Ошибка health-check:', error);
+    
     res.status(500).json({
       status: 'error',
       service: 'genesis-war-api',
       database: 'disconnected',
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      cached: false
     });
   }
 });
@@ -460,7 +515,7 @@ app.get('/api/marks/:userId', async (req, res) => {
   }
 });
 
-// Сохранение метки - ПОЛНОСТЬЮ ПЕРЕРАБОТАННЫЙ ENDPOINT
+// Сохранение метки
 app.post('/api/marks', async (req, res) => {
   logRequest('POST /api/marks', req);
   console.log('💾 Получен запрос на сохранение метки:', req.body);
@@ -508,7 +563,7 @@ app.post('/api/marks', async (req, res) => {
       });
     }
     
-    const VALID_MARK_TYPES = ['ally', 'enemy', 'favorite', 'clear'];
+    const VALID_MARK_TYPES = ['ally', 'enemy', 'favorite', 'clear', 'comment'];
     if (!VALID_MARK_TYPES.includes(mark_type)) {
       console.log('❌ Неверный тип метки:', mark_type);
       return res.status(400).json({ 
@@ -623,12 +678,16 @@ app.listen(port, async () => {
     console.log('✅ База данных инициализирована');
     console.log('🔧 Доступные endpoints:');
     console.log('   GET  /health');
+    console.log('   GET  /api/bot-health');
     console.log('   GET  /api/debug');
     console.log('   POST /api/save-code');
     console.log('   POST /api/verify-code');
     console.log('   POST /api/check-access');
     console.log('   GET  /api/marks/:userId');
     console.log('   POST /api/marks');
+    console.log('🔧 Rate limiting настроен:');
+    console.log('   - Основные API: 1000 запросов за 15 минут');
+    console.log('   - Health checks: 120 запросов за 1 минуту');
   } catch (error) {
     console.error('❌ Критическая ошибка инициализации:', error);
   }
