@@ -20,9 +20,9 @@ console.log('🔧 Инициализация API сервера...');
 
 // --- Кэш для health-check ---
 let healthCheckCache = {
-  data: null,
+   null,
   timestamp: 0,
-  ttl: 30000 // 30 секунд кэширования
+  ttl: 60000 // УВЕЛИЧЕН до 60 секунд (было 30000)
 };
 
 // --- Инициализация Middleware ---
@@ -33,40 +33,10 @@ app.use(helmet({
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 
-// УБИРАЕМ ОСНОВНОЙ RATE LIMITER - он вызывает проблемы
-// Вместо этого используем более мягкие настройки для конкретных эндпоинтов
-
-// ОЧЕНЬ МЯГКИЙ лимит для основных API эндпоинтов
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5000, // УВЕЛИЧИЛИ до 5000 запросов за 15 минут
-  message: JSON.stringify({
-    status: 'error',
-    error: 'Too Many Requests',
-    message: 'Слишком много запросов, попробуйте позже',
-    timestamp: new Date().toISOString()
-  }),
-  skip: (req) => {
-    // Пропускаем health-check и bot-health из ограничений
-    return req.path === '/health' || 
-           req.path === '/api/bot-health' ||
-           req.path === '/api/debug';
-  },
-  handler: (req, res) => {
-    res.status(429).json({
-      status: 'error',
-      error: 'Too Many Requests',
-      message: 'Слишком много запросов, попробуйте позже',
-      timestamp: new Date().toISOString(),
-      retryAfter: Math.floor(req.rateLimit.resetTime / 1000)
-    });
-  }
-});
-
 // ОЧЕНЬ МЯГКИЙ лимит для health-check эндпоинтов
 const healthCheckLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300, // УВЕЛИЧИЛИ до 300 запросов в минуту
+  max: 300, // 300 запросов в минуту
   message: JSON.stringify({
     status: 'error',
     error: 'Too Many Requests',
@@ -87,7 +57,7 @@ const healthCheckLimiter = rateLimit({
 // Лимит для эндпоинтов аутентификации (более строгий)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 попыток аутентификации за 15 минут
+  max: 100, // 100 попыток за 15 минут
   message: JSON.stringify({
     status: 'error',
     error: 'Too Many Requests',
@@ -110,13 +80,10 @@ app.use('/api/save-code', authLimiter);
 app.use('/api/verify-code', authLimiter);
 app.use('/health', healthCheckLimiter);
 app.use('/api/bot-health', healthCheckLimiter);
-// Основной API лимитер применяем ко всем остальным API эндпоинтам
-app.use('/api/', apiLimiter);
 
-// ИСПРАВЛЕННАЯ настройка CORS
+// ИСПРАВЛЕННАЯ настройка CORS (убраны пробелы в origin)
 app.use(cors({
   origin: function (origin, callback) {
-    // Разрешаем запросы без origin (например, из мобильных приложений или локальных файлов)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
@@ -124,8 +91,8 @@ app.use(cors({
       'http://localhost:3000',
       'http://127.0.0.1:3000',
       'http://localhost:8080',
-      'http://127.0.0.1:8080',
-      'https://your-frontend-domain.com' // замените на ваш домен
+      'http://127.0.0.1:8080'
+      // Удалён placeholder 'https://your-frontend-domain.com '
     ];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
@@ -252,7 +219,6 @@ async function cleanupOldTokens() {
   }
 }
 
-// Инициализация периодической очистки
 cleanupOldCodes();
 cleanupOldTokens();
 setInterval(cleanupOldCodes, 10 * 60 * 1000);
@@ -265,7 +231,7 @@ function logRequest(endpoint, req) {
 
 // --- API Endpoints ---
 
-// Эндпоинт для сохранения кода - УЛУЧШЕННАЯ ВЕРСИЯ
+// Эндпоинт для сохранения кода
 app.post('/api/save-code', async (req, res) => {
   logRequest('POST /api/save-code', req);
   console.log('💾 Тело запроса:', req.body);
@@ -288,7 +254,6 @@ app.post('/api/save-code', async (req, res) => {
   }
   
   try {
-    // Очищаем старые коды для этого пользователя
     await pool.query(`
       DELETE FROM access_codes 
       WHERE user_id = $1 OR created_at < NOW() - INTERVAL '10 minutes'
@@ -346,11 +311,10 @@ app.post('/api/save-code', async (req, res) => {
   }
 });
 
-// Эндпоинт для проверки связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ
+// Эндпоинт для проверки связи между ботом и API - С КЕШИРОВАНИЕМ 60 СЕК
 app.get('/api/bot-health', async (req, res) => {
   logRequest('GET /api/bot-health', req);
   
-  // Проверяем кэш
   const now = Date.now();
   if (healthCheckCache.data && (now - healthCheckCache.timestamp < healthCheckCache.ttl)) {
     console.log('✅ Возвращаем кэшированный результат health-check');
@@ -362,7 +326,6 @@ app.get('/api/bot-health', async (req, res) => {
   }
   
   try {
-    // Быстрая проверка подключения к БД
     const dbStart = Date.now();
     await pool.query('SELECT 1 as test');
     const dbTime = Date.now() - dbStart;
@@ -388,9 +351,8 @@ app.get('/api/bot-health', async (req, res) => {
       }
     };
     
-    // Сохраняем в кэш
     healthCheckCache = {
-      data: healthData,
+       healthData,
       timestamp: now
     };
     
@@ -592,7 +554,6 @@ app.post('/api/marks', async (req, res) => {
       return res.status(401).json({ error: 'Требуется авторизация' });
     }
     
-    // Проверяем токен
     const tokenResult = await pool.query(`
       SELECT * FROM access_tokens 
       WHERE token = $1
@@ -649,13 +610,11 @@ app.post('/api/marks', async (req, res) => {
     } else {
       console.log('💾 Сохранение метки:', { user_id, tile_id, mark_type });
       
-      // Удаляем все существующие метки для этого тайла (чтобы была только одна активная)
       await pool.query(
         'DELETE FROM user_marks WHERE user_id = $1 AND tile_id = $2',
         [user_id, tile_id]
       );
       
-      // Сохраняем новую метку
       query = `
           INSERT INTO user_marks (user_id, tile_id, mark_type, comment)
           VALUES ($1, $2, $3, $4)
@@ -690,7 +649,6 @@ app.get('/api/debug', async (req, res) => {
   logRequest('GET /api/debug', req);
   
   try {
-    // Проверяем все таблицы
     const tables = ['users', 'user_marks', 'access_codes', 'access_tokens', 'tiles'];
     const results = {};
     
@@ -703,7 +661,6 @@ app.get('/api/debug', async (req, res) => {
       }
     }
     
-    // Информация о rate limiting
     const rateLimitInfo = {
       remaining: req.rateLimit?.remaining || 'unlimited',
       limit: req.rateLimit?.limit || 'unlimited',
@@ -756,10 +713,9 @@ app.get('/api/rate-limit-status', (req, res) => {
 app.listen(port, async () => {
   console.log(`🚀 Сервер API запущен на порту ${port}`);
   console.log(`🌐 CORS настроен для нескольких origin-ов`);
-  console.log(`🔧 Rate limiting настроен с ОЧЕНЬ МЯГКИМИ лимитами:`);
-  console.log(`   - Основные API: 5000 запросов за 15 минут`);
-  console.log(`   - Health checks: 300 запросов за 1 минуту`);
+  console.log(`🔧 Rate limiting настроен:`);
   console.log(`   - Аутентификация: 100 запросов за 15 минут`);
+  console.log(`   - Health checks: 300 запросов за 1 минуту`);
   console.log(`   - /api/debug и /health: БЕЗ ограничений`);
   
   try {
