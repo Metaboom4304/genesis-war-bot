@@ -22,7 +22,7 @@ console.log('🔧 Инициализация API сервера...');
 let healthCheckCache = {
    null,
   timestamp: 0,
-  ttl: 60000 // УВЕЛИЧЕН до 60 секунд (было 30000)
+  ttl: 60000 // 60 секунд
 };
 
 // --- Инициализация Middleware ---
@@ -36,7 +36,7 @@ app.use(express.json({ limit: '50mb' }));
 // ОЧЕНЬ МЯГКИЙ лимит для health-check эндпоинтов
 const healthCheckLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300, // 300 запросов в минуту
+  max: 300,
   message: JSON.stringify({
     status: 'error',
     error: 'Too Many Requests',
@@ -54,10 +54,10 @@ const healthCheckLimiter = rateLimit({
   }
 });
 
-// Лимит для эндпоинтов аутентификации (более строгий)
+// Лимит для эндпоинтов аутентификации
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 попыток за 15 минут
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: JSON.stringify({
     status: 'error',
     error: 'Too Many Requests',
@@ -75,24 +75,23 @@ const authLimiter = rateLimit({
   }
 });
 
-// Применяем лимиты ТОЛЬКО к конкретным эндпоинтам
+// Применяем лимиты
 app.use('/api/save-code', authLimiter);
 app.use('/api/verify-code', authLimiter);
 app.use('/health', healthCheckLimiter);
 app.use('/api/bot-health', healthCheckLimiter);
 
-// ИСПРАВЛЕННАЯ настройка CORS (убраны пробелы в origin)
+// ИСПРАВЛЕННЫЙ CORS — УБРАНЫ ЛИШНИЕ ПРОБЕЛЫ
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
-      'https://genesis-data.onrender.com',
+      'https://genesis-data.onrender.com', // ← без пробелов!
       'http://localhost:3000',
       'http://127.0.0.1:3000',
       'http://localhost:8080',
       'http://127.0.0.1:8080'
-      // Удалён placeholder 'https://your-frontend-domain.com '
     ];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
@@ -685,15 +684,12 @@ app.get('/api/debug', async (req, res) => {
   }
 });
 
-// Health check endpoint - БЕЗ ОГРАНИЧЕНИЙ
+// Health check endpoint
 app.get('/health', (_req, res) => {
   res.status(200).json({ 
     status: 'ok', 
     service: 'genesis-war-api',
-    timestamp: new Date().toISOString(),
-    rate_limit_info: {
-      note: 'Health endpoint has very relaxed rate limits'
-    }
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -712,11 +708,8 @@ app.get('/api/rate-limit-status', (req, res) => {
 // --- Запуск сервера ---
 app.listen(port, async () => {
   console.log(`🚀 Сервер API запущен на порту ${port}`);
-  console.log(`🌐 CORS настроен для нескольких origin-ов`);
-  console.log(`🔧 Rate limiting настроен:`);
-  console.log(`   - Аутентификация: 100 запросов за 15 минут`);
-  console.log(`   - Health checks: 300 запросов за 1 минуту`);
-  console.log(`   - /api/debug и /health: БЕЗ ограничений`);
+  console.log(`🌐 CORS настроен для origin: https://genesis-data.onrender.com`);
+  console.log(`🔧 Rate limiting: auth=100/15min, health=300/1min`);
   
   try {
     await initDatabase();
