@@ -294,15 +294,28 @@ async function checkConnections() {
   } catch (error) {
     results.bot = { 
       status: '❌', 
-      message: `Бot: ERROR - ${error.message}`
+      message: `Бот: ERROR - ${error.message}`
     };
   }
   
   return results;
 }
 
-// Проверка связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ
+// Глобальный кеш для проверки связи бот–API
+let botApiHealthCache = {
+   null,
+  timestamp: 0
+};
+const BOT_API_HEALTH_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
+// Проверка связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ С КЕШИРОВАНИЕМ
 async function checkBotApiConnection() {
+  const now = Date.now();
+  if (botApiHealthCache.data && (now - botApiHealthCache.timestamp < BOT_API_HEALTH_CACHE_TTL)) {
+    console.log('✅ Возвращаем кэшированный результат bot-API связи (из кеша)');
+    return botApiHealthCache.data;
+  }
+
   try {
     console.log('🔍 Проверка связи бот-API...');
     const response = await fetchWithRetry(`${API_URL}/api/bot-health`);
@@ -320,6 +333,13 @@ async function checkBotApiConnection() {
     
     const result = await response.json();
     console.log('✅ Статус связи бот-API:', result);
+    
+    // Сохраняем в кеш
+    botApiHealthCache = {
+       result,
+      timestamp: now
+    };
+    
     return result;
   } catch (error) {
     console.error('❌ Ошибка проверки связи бот-API:', error);
@@ -817,7 +837,7 @@ bot.on('callback_query', async (query) => {
 // Отправка главного меню
 function sendMainMenu(chatId, userId) {
   const keyboardButtons = [
-    ['🔑 Получить код доступа', '🗺 Открыть карта']
+    ['🔑 Получить код доступа', '🗺 Открыть карту']
   ];
   
   if (isAdmin(userId)) {
