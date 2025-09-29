@@ -45,7 +45,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 30000); // Увеличили таймаут до 30с
       
       const response = await fetch(url, {
         ...options,
@@ -122,12 +122,11 @@ setInterval(() => console.log('💓 Bot heartbeat – still alive'), 60_000);
 // Telegram Bot
 // -----------------------------
 const bot = new TelegramBot(TOKEN, { 
-  polling: true,
-  pollingOptions: {
+  polling: {
     interval: 300,
     autoStart: true,
     params: {
-      timeout: 10
+      timeout: 60, // Увеличили до 60 секунд для Render
     }
   }
 });
@@ -303,7 +302,7 @@ async function checkConnections() {
 
 // Глобальный кеш для проверки связи бот–API
 let botApiHealthCache = {
-   null,
+  data: null, // ИСПРАВЛЕНО: добавлено свойство data
   timestamp: 0
 };
 const BOT_API_HEALTH_CACHE_TTL = 5 * 60 * 1000; // 5 минут
@@ -336,7 +335,7 @@ async function checkBotApiConnection() {
     
     // Сохраняем в кеш
     botApiHealthCache = {
-       result,
+      data: result, // ИСПРАВЛЕНО: добавлено свойство data
       timestamp: now
     };
     
@@ -973,21 +972,57 @@ bot.on('error', (error) => {
 
 bot.on('polling_error', (error) => {
   console.error('❌ Ошибка polling:', error);
+  // Автоматический перезапуск через 10 секунд при ошибках polling
+  setTimeout(() => {
+    console.log('🔄 Restarting bot polling...');
+    bot.startPolling().catch(err => {
+      console.error('❌ Failed to restart polling:', err);
+    });
+  }, 10000);
+});
+
+// -----------------------------
+// Обработка необработанных исключений
+// -----------------------------
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  process.exit(1);
 });
 
 // -----------------------------
 // Graceful shutdown
 // -----------------------------
 async function cleanUp() {
-  console.log('🛑 Received shutdown signal, stopping bot…');
+  console.log('🛑 Received shutdown signal, stopping services…');
   try {
     await bot.stopPolling();
-    console.log('✅ Polling stopped.');
+    console.log('✅ Bot polling stopped');
   } catch (err) {
-    console.error('❌ Error during stopPolling:', err);
+    console.error('❌ Error stopping bot:', err);
   }
+  
+  try {
+    server.close(() => {
+      console.log('✅ Express server closed');
+    });
+  } catch (err) {
+    console.error('❌ Error closing server:', err);
+  }
+  
+  try {
+    await pool.end();
+    console.log('✅ Database pool closed');
+  } catch (err) {
+    console.error('❌ Error closing database pool:', err);
+  }
+  
   process.exit(0);
 }
+
 process.on('SIGINT', cleanUp);
 process.on('SIGTERM', cleanUp);
 
@@ -996,21 +1031,24 @@ process.on('SIGTERM', cleanUp);
 // -----------------------------
 (async () => {
   try {
+    // Проверка подключения к БД
+    console.log('🔌 Testing database connection...');
+    const dbTest = await pool.query('SELECT NOW() as time');
+    console.log('✅ Database connection OK:', dbTest.rows[0].time);
+    
     await loadUsers();
     
-    console.log('✅ Бот инициализирован');
-    console.log(`👑 Администратор: ${ADMIN_ID || 'не задан'}`);
-    console.log(`🌐 API URL: ${API_URL}`);
-    console.log(`🗺 MAP URL: ${MAP_URL}`);
+    console.log('✅ Bot initialized successfully');
+    console.log(`👑 Admin: ${ADMIN_ID || 'not set'}`);
+    console.log(`🌐 API: ${API_URL}`);
+    console.log(`🗺 Map: ${MAP_URL}`);
     
-    // Тестируем соединение с API при старте
-    console.log('🔍 Проверка связи с API при старте...');
+    // Тест API
     try {
-      const testResponse = await fetchWithRetry(`${API_URL}/api/debug`);
-      const testData = await testResponse.json();
-      console.log('✅ Связь с API установлена:', testData.status);
+      const testResponse = await fetchWithRetry(`${API_URL}/health`, {}, 2, 1000);
+      console.log('✅ API health check OK');
     } catch (error) {
-      console.error('❌ Ошибка связи с API:', error.message);
+      console.warn('⚠️ API health check failed:', error.message);
     }
     
     if (ADMIN_ID) {
