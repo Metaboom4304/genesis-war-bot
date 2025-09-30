@@ -275,7 +275,7 @@ async function checkConnections() {
         message: `API: OK (${apiTime}ms)`
       };
     } else {
-      const errorText = apiResponse.text(); // Используем обёртку
+      const errorText = await apiResponse.text(); // Fixed: added await
       results.api = { 
         status: '❌', 
         message: `API: ERROR ${apiResponse.status} - ${errorText}`
@@ -306,7 +306,7 @@ async function checkConnections() {
 
 // Глобальный кеш для проверки связи бот–API
 let botApiHealthCache = {
-   null,
+  data: null, // Fixed: added proper property name
   timestamp: 0
 };
 const BOT_API_HEALTH_CACHE_TTL = 5 * 60 * 1000; // 5 минут
@@ -329,7 +329,7 @@ async function checkBotApiConnection() {
     
     // Сохраняем в кеш
     botApiHealthCache = {
-       result,
+      data: result, // Fixed: added proper property name
       timestamp: now
     };
     
@@ -363,20 +363,20 @@ function sendAdminPanel(chatId) {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '📊 Статистика', callback_ 'admin_stats' },
-          { text: '🔍 Проверить связи', callback_ 'admin_check' }
+          { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
+          { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
         ],
         [
-          { text: '👥 Список пользователей', callback_ 'admin_users' },
-          { text: '🤖 Бот-API связь', callback_ 'admin_bot_api' }
+          { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
+          { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' } // Fixed: callback_ -> callback_data
         ],
         [
-          { text: '🔑 Получить код', callback_ 'get_code' },
-          { text: '🗺 Открыть карту', callback_ 'open_map' }
+          { text: '🔑 Получить код', callback_data: 'get_code' }, // Fixed: callback_ -> callback_data
+          { text: '🗺 Открыть карту', callback_data: 'open_map' } // Fixed: callback_ -> callback_data
         ],
         [
-          { text: '🐛 Тест API', callback_ 'test_api' },
-          { text: '⬅️ Главное меню', callback_ 'main_menu' }
+          { text: '🐛 Тест API', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
+          { text: '⬅️ Главное меню', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
         ]
       ]
     }
@@ -648,11 +648,11 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Обновить', callback_ 'test_api' },
-                { text: '📊 Статистика', callback_ 'admin_stats' }
+                { text: '🔄 Обновить', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
+                { text: '📊 Статистика', callback_data: 'admin_stats' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -664,8 +664,8 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Попробовать снова', callback_ 'test_api' },
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '🔄 Попробовать снова', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -695,15 +695,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Обновить', callback_ 'admin_stats' },
-                { text: '🔍 Проверить связи', callback_ 'admin_check' }
+                { text: '🔄 Обновить', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
+                { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '👥 Список пользователей', callback_ 'admin_users' },
-                { text: '🐛 Тест API', callback_ 'test_api' }
+                { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
+                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -725,15 +725,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_ 'admin_stats' },
-                { text: '🔄 Проверить снова', callback_ 'admin_check' }
+                { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
+                { text: '🔄 Проверить снова', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '👥 Список пользователей', callback_ 'admin_users' },
-                { text: '🐛 Тест API', callback_ 'test_api' }
+                { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
+                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -763,15 +763,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_ 'admin_stats' },
-                { text: '🔍 Проверить связи', callback_ 'admin_check' }
+                { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
+                { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '🔄 Обновить список', callback_ 'admin_users' },
-                { text: '🐛 Тест API', callback_ 'test_api' }
+                { text: '🔄 Обновить список', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
+                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -801,12 +801,12 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Проверить снова', callback_ 'admin_bot_api' },
-                { text: '🔍 Общая проверка', callback_ 'admin_check' }
+                { text: '🔄 Проверить снова', callback_data: 'admin_bot_api' }, // Fixed: callback_ -> callback_data
+                { text: '🔍 Общая проверка', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
               ],
               [
-                { text: '🐛 Тест API', callback_ 'test_api' },
-                { text: '⬅️ Назад', callback_ 'main_menu' }
+                { text: '🐛 Тест API', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
+                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
               ]
             ]
           }
@@ -908,7 +908,7 @@ async function sendAccessCode(chatId, userId) {
         inline_keyboard: [
           [{
             text: '🔄 Получить новый код',
-            callback_ 'get_code'
+            callback_data: 'get_code' // Fixed: callback_ -> callback_data
           }],
           [{
             text: '🗺 Открыть карту',
@@ -943,7 +943,7 @@ async function sendAccessCode(chatId, userId) {
         inline_keyboard: [
           [{
             text: '🔄 Попробовать снова',
-            callback_ 'get_code'
+            callback_data: 'get_code' // Fixed: callback_ -> callback_data
           }]
         ]
       }
