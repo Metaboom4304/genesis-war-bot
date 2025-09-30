@@ -39,7 +39,7 @@ const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = dirname(__filename);
 
 // -----------------------------
-// Улучшенная функция fetch с повторными попытками
+// Улучшенная функция fetch с повторными попытками и безопасным чтением тела
 // -----------------------------
 async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
   for (let i = 0; i < retries; i++) {
@@ -54,17 +54,15 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
       
       clearTimeout(timeout);
 
+      // Читаем тело ОДИН раз
+      const text = await response.text();
+
       // Обрабатываем ошибку 429 (Too Many Requests)
       if (response.status === 429) {
-        const errorData = await response.json().catch(() => ({ 
-          message: 'Too Many Requests',
-          timestamp: new Date().toISOString()
-        }));
-        
+        const errorData = JSON.parse(text || '{}');
         if (i === retries - 1) {
-          throw new Error(`429 Too Many Requests: ${errorData.message}`);
+          throw new Error(`429 Too Many Requests: ${errorData.message || 'Rate limit exceeded'}`);
         }
-        
         console.log(`🔄 Получена ошибка 429. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2; // Экспоненциальная задержка
@@ -72,17 +70,23 @@ async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
       }
 
       if (!response.ok) {
-        let errorMessage;
+        let errorMessage = `HTTP ${response.status}`;
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
+          const errorData = JSON.parse(text);
+          errorMessage = errorData.error || errorData.message || errorMessage;
         } catch (e) {
-          errorMessage = await response.text();
+          errorMessage = text || errorMessage;
         }
-        throw new Error(`HTTP ${response.status}: ${errorMessage}`);
+        throw new Error(errorMessage);
       }
 
-      return response;
+      // Возвращаем объект с текстом и статусом, имитируя оригинальный Response
+      return {
+        ...response,
+        _text: text,
+        json: () => JSON.parse(text),
+        text: () => text
+      };
 
     } catch (error) {
       if (i === retries - 1) throw error;
@@ -271,7 +275,7 @@ async function checkConnections() {
         message: `API: OK (${apiTime}ms)`
       };
     } else {
-      const errorText = await apiResponse.text();
+      const errorText = apiResponse.text(); // Используем обёртку
       results.api = { 
         status: '❌', 
         message: `API: ERROR ${apiResponse.status} - ${errorText}`
@@ -302,7 +306,7 @@ async function checkConnections() {
 
 // Глобальный кеш для проверки связи бот–API
 let botApiHealthCache = {
-  data: null, // ИСПРАВЛЕНО: добавлено свойство data
+   null,
   timestamp: 0
 };
 const BOT_API_HEALTH_CACHE_TTL = 5 * 60 * 1000; // 5 минут
@@ -319,23 +323,13 @@ async function checkBotApiConnection() {
     console.log('🔍 Проверка связи бот-API...');
     const response = await fetchWithRetry(`${API_URL}/api/bot-health`);
     
-    if (!response.ok) {
-      let errorMessage;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-      } catch (e) {
-        errorMessage = await response.text();
-      }
-      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
-    }
-    
-    const result = await response.json();
+    // Используем безопасный .json() из обёртки
+    const result = response.json();
     console.log('✅ Статус связи бот-API:', result);
     
     // Сохраняем в кеш
     botApiHealthCache = {
-      data: result, // ИСПРАВЛЕНО: добавлено свойство data
+       result,
       timestamp: now
     };
     
@@ -369,20 +363,20 @@ function sendAdminPanel(chatId) {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '📊 Статистика', callback_data: 'admin_stats' },
-          { text: '🔍 Проверить связи', callback_data: 'admin_check' }
+          { text: '📊 Статистика', callback_ 'admin_stats' },
+          { text: '🔍 Проверить связи', callback_ 'admin_check' }
         ],
         [
-          { text: '👥 Список пользователей', callback_data: 'admin_users' },
-          { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' }
+          { text: '👥 Список пользователей', callback_ 'admin_users' },
+          { text: '🤖 Бот-API связь', callback_ 'admin_bot_api' }
         ],
         [
-          { text: '🔑 Получить код', callback_data: 'get_code' },
-          { text: '🗺 Открыть карту', callback_data: 'open_map' }
+          { text: '🔑 Получить код', callback_ 'get_code' },
+          { text: '🗺 Открыть карту', callback_ 'open_map' }
         ],
         [
-          { text: '🐛 Тест API', callback_data: 'test_api' },
-          { text: '⬅️ Главное меню', callback_data: 'main_menu' }
+          { text: '🐛 Тест API', callback_ 'test_api' },
+          { text: '⬅️ Главное меню', callback_ 'main_menu' }
         ]
       ]
     }
@@ -654,11 +648,11 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Обновить', callback_data: 'test_api' },
-                { text: '📊 Статистика', callback_data: 'admin_stats' }
+                { text: '🔄 Обновить', callback_ 'test_api' },
+                { text: '📊 Статистика', callback_ 'admin_stats' }
               ],
               [
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -670,8 +664,8 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Попробовать снова', callback_data: 'test_api' },
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '🔄 Попробовать снова', callback_ 'test_api' },
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -701,15 +695,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Обновить', callback_data: 'admin_stats' },
-                { text: '🔍 Проверить связи', callback_data: 'admin_check' }
+                { text: '🔄 Обновить', callback_ 'admin_stats' },
+                { text: '🔍 Проверить связи', callback_ 'admin_check' }
               ],
               [
-                { text: '👥 Список пользователей', callback_data: 'admin_users' },
-                { text: '🐛 Тест API', callback_data: 'test_api' }
+                { text: '👥 Список пользователей', callback_ 'admin_users' },
+                { text: '🐛 Тест API', callback_ 'test_api' }
               ],
               [
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -731,15 +725,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_data: 'admin_stats' },
-                { text: '🔄 Проверить снова', callback_data: 'admin_check' }
+                { text: '📊 Статистика', callback_ 'admin_stats' },
+                { text: '🔄 Проверить снова', callback_ 'admin_check' }
               ],
               [
-                { text: '👥 Список пользователей', callback_data: 'admin_users' },
-                { text: '🐛 Тест API', callback_data: 'test_api' }
+                { text: '👥 Список пользователей', callback_ 'admin_users' },
+                { text: '🐛 Тест API', callback_ 'test_api' }
               ],
               [
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -769,15 +763,15 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_data: 'admin_stats' },
-                { text: '🔍 Проверить связи', callback_data: 'admin_check' }
+                { text: '📊 Статистика', callback_ 'admin_stats' },
+                { text: '🔍 Проверить связи', callback_ 'admin_check' }
               ],
               [
-                { text: '🔄 Обновить список', callback_data: 'admin_users' },
-                { text: '🐛 Тест API', callback_data: 'test_api' }
+                { text: '🔄 Обновить список', callback_ 'admin_users' },
+                { text: '🐛 Тест API', callback_ 'test_api' }
               ],
               [
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -807,12 +801,12 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Проверить снова', callback_data: 'admin_bot_api' },
-                { text: '🔍 Общая проверка', callback_data: 'admin_check' }
+                { text: '🔄 Проверить снова', callback_ 'admin_bot_api' },
+                { text: '🔍 Общая проверка', callback_ 'admin_check' }
               ],
               [
-                { text: '🐛 Тест API', callback_data: 'test_api' },
-                { text: '⬅️ Назад', callback_data: 'main_menu' }
+                { text: '🐛 Тест API', callback_ 'test_api' },
+                { text: '⬅️ Назад', callback_ 'main_menu' }
               ]
             ]
           }
@@ -914,7 +908,7 @@ async function sendAccessCode(chatId, userId) {
         inline_keyboard: [
           [{
             text: '🔄 Получить новый код',
-            callback_data: 'get_code'
+            callback_ 'get_code'
           }],
           [{
             text: '🗺 Открыть карту',
@@ -949,7 +943,7 @@ async function sendAccessCode(chatId, userId) {
         inline_keyboard: [
           [{
             text: '🔄 Попробовать снова',
-            callback_data: 'get_code'
+            callback_ 'get_code'
           }]
         ]
       }
