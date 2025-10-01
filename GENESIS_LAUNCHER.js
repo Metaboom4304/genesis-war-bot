@@ -18,13 +18,12 @@ for (const key of requiredEnv) {
   }
 }
 
-// -----------------------------
 // Подключение к базе данных (для пользователей и меток)
-// -----------------------------
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 20,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: {
+    rejectUnauthorized: false // ← ОБЯЗАТЕЛЬНО для Supabase
+  }
 });
 
 // -----------------------------
