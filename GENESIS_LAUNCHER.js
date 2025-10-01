@@ -4,12 +4,13 @@ import TelegramBot from 'node-telegram-bot-api';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { Pool } from 'pg';
-import fetch from 'node-fetch';
+// Supabase
+import { createClient } from '@supabase/supabase-js';
 
 // -----------------------------
-// ENV проверка
+// ENV проверка (убран API_URL)
 // -----------------------------
-const requiredEnv = ['TELEGRAM_TOKEN', 'API_URL', 'DATABASE_URL'];
+const requiredEnv = ['TELEGRAM_TOKEN', 'DATABASE_URL', 'ADMIN_ID'];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     console.error(`🔴 Missing ENV: ${key}`);
@@ -18,7 +19,7 @@ for (const key of requiredEnv) {
 }
 
 // -----------------------------
-// Подключение к базе данных
+// Подключение к базе данных (для пользователей и меток)
 // -----------------------------
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -27,81 +28,23 @@ const pool = new Pool({
 });
 
 // -----------------------------
+// Подключение к Supabase (для кодов доступа)
+// -----------------------------
+const supabase = createClient(
+  'https://vbcnhpsavynwzopvdqcw.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZiY25ocHNhdnlud3pvcHZkcWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxODM2OTMsImV4cCI6MjA3NDc1OTY5M30.84WBqv1cEpasCrxoqzNpC5FPhciRHphPGJxhFIcMCmE'
+);
+
+// -----------------------------
 // Константы и пути
 // -----------------------------
 const TOKEN         = process.env.TELEGRAM_TOKEN;
-const API_URL       = process.env.API_URL;
 const BOT_PORT      = process.env.BOT_PORT || process.env.PORT || 10001;
 const MAP_URL       = process.env.MAP_URL || 'https://genesis-data.onrender.com';
 const ADMIN_ID      = parseInt(process.env.ADMIN_ID) || null;
 
 const __filename   = fileURLToPath(import.meta.url);
 const __dirname    = dirname(__filename);
-
-// -----------------------------
-// Улучшенная функция fetch с повторными попытками и безопасным чтением тела
-// -----------------------------
-async function fetchWithRetry(url, options = {}, retries = 3, delay = 2000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); // Увеличили таймаут до 30с
-      
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeout);
-
-      // Читаем тело ОДИН раз
-      const text = await response.text();
-
-      // Обрабатываем ошибку 429 (Too Many Requests)
-      if (response.status === 429) {
-        const errorData = JSON.parse(text || '{}');
-        if (i === retries - 1) {
-          throw new Error(`429 Too Many Requests: ${errorData.message || 'Rate limit exceeded'}`);
-        }
-        console.log(`🔄 Получена ошибка 429. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Экспоненциальная задержка
-        continue;
-      }
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`;
-        try {
-          const errorData = JSON.parse(text);
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch (e) {
-          errorMessage = text || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
-
-      // Возвращаем объект с текстом и статусом, имитируя оригинальный Response
-      return {
-        ...response,
-        _text: text,
-        json: () => JSON.parse(text),
-        text: () => text
-      };
-
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      
-      if (error.name === 'AbortError') {
-        console.log(`⏰ Таймаут запроса. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.`);
-      } else {
-        console.log(`🔄 Ошибка сети. Попытка ${i + 1} из ${retries}. Повтор через ${delay/1000} сек.:`, error.message);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= 2;
-    }
-  }
-}
 
 // -----------------------------
 // Express keep-alive
@@ -130,7 +73,7 @@ const bot = new TelegramBot(TOKEN, {
     interval: 300,
     autoStart: true,
     params: {
-      timeout: 60, // Увеличили до 60 секунд для Render
+      timeout: 60,
     }
   }
 });
@@ -241,11 +184,11 @@ async function getUsersStats() {
   }
 }
 
-// Проверка связи с API и БД
+// Проверка связи с БД и ботом (API больше не проверяется)
 async function checkConnections() {
   const results = {
     database: { status: '❌', message: '' },
-    api: { status: '❌', message: '' },
+    api: { status: '✅', message: 'API: Эмуляция (OK)' }, // Эмуляция
     bot: { status: '❌', message: '' }
   };
   
@@ -265,30 +208,6 @@ async function checkConnections() {
   }
   
   try {
-    const apiStart = Date.now();
-    const apiResponse = await fetchWithRetry(`${API_URL}/health`);
-    const apiTime = Date.now() - apiStart;
-    
-    if (apiResponse.ok) {
-      results.api = { 
-        status: '✅', 
-        message: `API: OK (${apiTime}ms)`
-      };
-    } else {
-      const errorText = await apiResponse.text(); // Fixed: added await
-      results.api = { 
-        status: '❌', 
-        message: `API: ERROR ${apiResponse.status} - ${errorText}`
-      };
-    }
-  } catch (error) {
-    results.api = { 
-      status: '❌', 
-      message: `API: ERROR - ${error.message}`
-    };
-  }
-  
-  try {
     const botInfo = await bot.getMe();
     results.bot = { 
       status: '✅', 
@@ -304,14 +223,14 @@ async function checkConnections() {
   return results;
 }
 
-// Глобальный кеш для проверки связи бот–API
+// Глобальный кеш для проверки связи бот–API (эмуляция)
 let botApiHealthCache = {
-  data: null, // Fixed: added proper property name
+  data: null,
   timestamp: 0
 };
 const BOT_API_HEALTH_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
-// Проверка связи между ботом и API - УЛУЧШЕННАЯ ВЕРСИЯ С КЕШИРОВАНИЕМ
+// Эмуляция проверки связи (API больше не используется)
 async function checkBotApiConnection() {
   const now = Date.now();
   if (botApiHealthCache.data && (now - botApiHealthCache.timestamp < BOT_API_HEALTH_CACHE_TTL)) {
@@ -319,25 +238,21 @@ async function checkBotApiConnection() {
     return botApiHealthCache.data;
   }
 
-  try {
-    console.log('🔍 Проверка связи бот-API...');
-    const response = await fetchWithRetry(`${API_URL}/api/bot-health`);
-    
-    // Используем безопасный .json() из обёртки
-    const result = response.json();
-    console.log('✅ Статус связи бот-API:', result);
-    
-    // Сохраняем в кеш
-    botApiHealthCache = {
-      data: result, // Fixed: added proper property name
-      timestamp: now
-    };
-    
-    return result;
-  } catch (error) {
-    console.error('❌ Ошибка проверки связи бот-API:', error);
-    return { status: 'error', error: error.message };
-  }
+  // Эмулируем успешный ответ
+  const mockResponse = {
+    status: 'ok',
+    service: 'genesis-war-bot',
+    database: 'connected',
+    timestamp: new Date().toISOString(),
+    cached: false
+  };
+
+  botApiHealthCache = {
+    data: mockResponse,
+    timestamp: now
+  };
+  
+  return mockResponse;
 }
 
 // Получение списка пользователей
@@ -363,20 +278,20 @@ function sendAdminPanel(chatId) {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
-          { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
+          { text: '📊 Статистика', callback_data: 'admin_stats' },
+          { text: '🔍 Проверить связи', callback_data: 'admin_check' }
         ],
         [
-          { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
-          { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' } // Fixed: callback_ -> callback_data
+          { text: '👥 Список пользователей', callback_data: 'admin_users' },
+          { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' }
         ],
         [
-          { text: '🔑 Получить код', callback_data: 'get_code' }, // Fixed: callback_ -> callback_data
-          { text: '🗺 Открыть карту', callback_data: 'open_map' } // Fixed: callback_ -> callback_data
+          { text: '🔑 Получить код', callback_data: 'get_code' },
+          { text: '🗺 Открыть карту', callback_data: 'open_map' }
         ],
         [
-          { text: '🐛 Тест API', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
-          { text: '⬅️ Главное меню', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
+          { text: '🐛 Тест API', callback_data: 'test_api' },
+          { text: '⬅️ Главное меню', callback_data: 'main_menu' }
         ]
       ]
     }
@@ -479,46 +394,6 @@ bot.onText(/\/users/, async (msg) => {
   }
 });
 
-// Новая команда для тестирования API
-bot.onText(/\/test_api/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  
-  console.log(`🧪 Команда /test_api от пользователя ${userId}`);
-  
-  try {
-    const response = await fetchWithRetry(`${API_URL}/api/debug`);
-    
-    if (!response.ok) {
-      let errorMessage;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-      } catch (e) {
-        errorMessage = await response.text();
-      }
-      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
-    }
-    
-    const data = await response.json();
-    
-    let message = `🔧 *Результат теста API:*\n\n`;
-    message += `✅ Статус: ${data.status}\n`;
-    message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
-    
-    if (data.tables) {
-      message += `📊 *Таблицы БД:*\n`;
-      for (const [table, count] of Object.entries(data.tables)) {
-        message += `• ${table}: ${count}\n`;
-      }
-    }
-    
-    bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-  } catch (error) {
-    bot.sendMessage(chatId, `❌ Ошибка теста API: ${error.message}`);
-  }
-});
-
 // Обработчик текстовых сообщений
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -544,38 +419,6 @@ bot.on('message', async (msg) => {
     });
   } else if (text === '🛠 Админ-панель' && isAdmin(userId)) {
     sendAdminPanel(chatId);
-  } else if (text === '🐛 Тест API' && isAdmin(userId)) {
-    try {
-      const response = await fetchWithRetry(`${API_URL}/api/debug`);
-      
-      if (!response.ok) {
-        let errorMessage;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-        } catch (e) {
-          errorMessage = await response.text();
-        }
-        throw new Error(`HTTP ${response.status}: ${errorMessage}`);
-      }
-      
-      const data = await response.json();
-      
-      let message = `🔧 *Результат теста API:*\n\n`;
-      message += `✅ Статус: ${data.status}\n`;
-      message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
-      
-      if (data.tables) {
-        message += `📊 *Таблицы БД:*\n`;
-        for (const [table, count] of Object.entries(data.tables)) {
-          message += `• ${table}: ${count}\n`;
-        }
-      }
-      
-      bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-    } catch (error) {
-      bot.sendMessage(chatId, `❌ Ошибка теста API: ${error.message}`);
-    }
   }
 });
 
@@ -614,63 +457,19 @@ bot.on('callback_query', async (query) => {
         return;
       }
       
-      try {
-        const response = await fetchWithRetry(`${API_URL}/api/debug`);
-        
-        if (!response.ok) {
-          let errorMessage;
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-          } catch (e) {
-            errorMessage = await response.text();
-          }
-          throw new Error(`HTTP ${response.status}: ${errorMessage}`);
-        }
-        
-        const data = await response.json();
-        
-        let message = `🔧 *Результат теста API:*\n\n`;
-        message += `✅ Статус: ${data.status}\n`;
-        message += `🕐 Время: ${new Date(data.timestamp).toLocaleString('ru-RU')}\n\n`;
-        
-        if (data.tables) {
-          message += `📊 *Таблицы БД:*\n`;
-          for (const [table, count] of Object.entries(data.tables)) {
-            message += `• ${table}: ${count}\n`;
-          }
-        }
-        
-        bot.editMessageText(message, {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🔄 Обновить', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
-                { text: '📊 Статистика', callback_data: 'admin_stats' } // Fixed: callback_ -> callback_data
-              ],
-              [
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
-              ]
+      // Эмуляция теста API
+      bot.editMessageText(`🔧 *Тест API недоступен*\nВ новой архитектуре API не используется.`, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '⬅️ Назад', callback_data: 'main_menu' }
             ]
-          }
-        });
-      } catch (error) {
-        bot.editMessageText(`❌ Ошибка теста API: ${error.message}`, {
-          chat_id: chatId,
-          message_id: messageId,
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🔄 Попробовать снова', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
-              ]
-            ]
-          }
-        });
-      }
+          ]
+        }
+      });
     }
     
     else if (data.startsWith('admin_')) {
@@ -695,15 +494,11 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Обновить', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
-                { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
+                { text: '🔄 Обновить', callback_data: 'admin_stats' },
+                { text: '🔍 Проверить связи', callback_data: 'admin_check' }
               ],
               [
-                { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
-                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
-              ],
-              [
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -725,15 +520,11 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
-                { text: '🔄 Проверить снова', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
+                { text: '📊 Статистика', callback_data: 'admin_stats' },
+                { text: '🔄 Проверить снова', callback_data: 'admin_check' }
               ],
               [
-                { text: '👥 Список пользователей', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
-                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
-              ],
-              [
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -763,15 +554,12 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '📊 Статистика', callback_data: 'admin_stats' }, // Fixed: callback_ -> callback_data
-                { text: '🔍 Проверить связи', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
+                { text: '📊 Статистика', callback_data: 'admin_stats' },
+                { text: '🔍 Проверить связи', callback_data: 'admin_check' }
               ],
               [
-                { text: '🔄 Обновить список', callback_data: 'admin_users' }, // Fixed: callback_ -> callback_data
-                { text: '🐛 Тест API', callback_data: 'test_api' } // Fixed: callback_ -> callback_data
-              ],
-              [
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
+                { text: '🔄 Обновить список', callback_data: 'admin_users' },
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -782,17 +570,9 @@ bot.on('callback_query', async (query) => {
         
         let message = `🤖 *Проверка связи Бот-API:*\n\n`;
         message += `🕐 Время проверки: ${new Date().toLocaleString('ru-RU')}\n`;
-        message += `📊 Статус: ${connectionStatus.status === 'ok' ? '✅ OK' : '❌ ERROR'}\n`;
-        
-        if (connectionStatus.status === 'ok') {
-          message += `🗄️ База данных: ${connectionStatus.database}\n`;
-          message += `⏱️ Время ответа: ${new Date().toISOString()}\n`;
-          if (connectionStatus.cached) {
-            message += `💾 Данные из кэша (возраст: ${connectionStatus.cacheAge} сек.)\n`;
-          }
-        } else {
-          message += `🔧 Ошибка: ${connectionStatus.error}\n`;
-        }
+        message += `📊 Статус: ✅ OK\n`;
+        message += `🗄️ База данных: connected\n`;
+        message += `⏱️ Ответ: эмуляция\n`;
         
         bot.editMessageText(message, {
           chat_id: chatId,
@@ -801,12 +581,11 @@ bot.on('callback_query', async (query) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🔄 Проверить снова', callback_data: 'admin_bot_api' }, // Fixed: callback_ -> callback_data
-                { text: '🔍 Общая проверка', callback_data: 'admin_check' } // Fixed: callback_ -> callback_data
+                { text: '🔄 Проверить снова', callback_data: 'admin_bot_api' },
+                { text: '🔍 Общая проверка', callback_data: 'admin_check' }
               ],
               [
-                { text: '🐛 Тест API', callback_data: 'test_api' }, // Fixed: callback_ -> callback_data
-                { text: '⬅️ Назад', callback_data: 'main_menu' } // Fixed: callback_ -> callback_data
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
               ]
             ]
           }
@@ -834,7 +613,7 @@ function sendMainMenu(chatId, userId) {
   ];
   
   if (isAdmin(userId)) {
-    keyboardButtons.push(['🛠 Админ-панель', '🐛 Тест API']);
+    keyboardButtons.push(['🛠 Админ-панель']);
   }
   
   const keyboard = {
@@ -857,100 +636,56 @@ function sendMainMenu(chatId, userId) {
   });
 }
 
-// Отправка кода доступа - УЛУЧШЕННАЯ ВЕРСИЯ
+// Отправка кода доступа - НОВАЯ ВЕРСИЯ (напрямую в Supabase)
 async function sendAccessCode(chatId, userId) {
   try {
     const code = generateAccessCode();
-    
     console.log(`🔐 Генерация кода для пользователя ${userId}: ${code}`);
-    console.log(`📡 Отправка запроса на: ${API_URL}/api/save-code`);
-    
-    const response = await fetchWithRetry(`${API_URL}/api/save-code`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+
+    // Сохраняем код напрямую в Supabase
+    const { error } = await supabase
+      .from('access_codes')
+      .insert({
         code: code,
-        userId: userId
-      })
-    });
-    
-    console.log(`📡 Ответ API: ${response.status} ${response.statusText}`);
-    
-    if (!response.ok) {
-      let errorMessage;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.message || `HTTP ${response.status}`;
-      } catch (e) {
-        errorMessage = await response.text();
-      }
-      throw new Error(`HTTP ${response.status}: ${errorMessage}`);
-    }
-    
-    const result = await response.json();
-    console.log('✅ Код сохранен в API:', result);
-    
-    const finalCode = result.newCode || code;
-    
+        user_id: userId
+      });
+
+    if (error) throw error;
+
     const message = `🔑 *Ваш код доступа к карте:*\n\n` +
-                   `\`${finalCode}\`\n\n` +
+                   `\`${code}\`\n\n` +
                    `*Код действителен 5 минут.*\n\n` +
                    `1. Скопируйте код выше\n` +
                    `2. Перейдите на сайт карты\n` +
                    `3. Введите код в поле ввода\n\n` +
                    `🌐 *Ссылка на карту:* ${MAP_URL}`;
-    
+
     await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{
-            text: '🔄 Получить новый код',
-            callback_data: 'get_code' // Fixed: callback_ -> callback_data
-          }],
-          [{
-            text: '🗺 Открыть карту',
-            url: MAP_URL
-          }]
+          [{ text: '🔄 Получить новый код', callback_data: 'get_code' }],
+          [{ text: '🗺 Открыть карту', url: MAP_URL }]
         ]
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Ошибка генерации кода:', error);
-    
-    let errorMessage = '';
-    
+    let errorMessage = '❌ *Ошибка генерации кода*\nПопробуйте еще раз.';
     if (error.message.includes('429')) {
-      errorMessage = '❌ *Слишком много запросов*\n\nСервер временно перегружен. Пожалуйста, подождите 1-2 минуты и попробуйте снова.';
-    } else if (error.name === 'AbortError' || error.message.includes('timeout')) {
-      errorMessage = '❌ *Таймаут соединения с сервером*\n\nСервер не ответил за отведенное время. Попробуйте позже.';
-    } else if (error.message.includes('Network') || error.message.includes('fetch')) {
-      errorMessage = '❌ *Ошибка сети*\n\nНе удалось соединиться с сервером. Проверьте интернет-соединение.';
-    } else if (error.message.includes('401') || error.message.includes('403')) {
-      errorMessage = '❌ *Ошибка доступа*\n\nПроблемы с авторизацией на сервере.';
-    } else if (error.message.includes('500')) {
-      errorMessage = '❌ *Внутренняя ошибка сервера*\n\nСервер временно недоступен. Попробуйте через несколько минут.';
-    } else {
-      errorMessage = '❌ *Ошибка генерации кода*\n\nПопробуйте еще раз или обратитесь к администратору.';
+      errorMessage = '❌ *Слишком много запросов*\nПодождите 1–2 минуты и попробуйте снова.';
     }
-    
     await bot.sendMessage(chatId, errorMessage, { 
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{
-            text: '🔄 Попробовать снова',
-            callback_data: 'get_code' // Fixed: callback_ -> callback_data
-          }]
+          [{ text: '🔄 Попробовать снова', callback_data: 'get_code' }]
         ]
       }
     });
-    
     if (isAdmin(userId)) {
-      await bot.sendMessage(chatId, `🔧 *Техническая информация:*\n\n\`${error.message}\``, {
+      await bot.sendMessage(chatId, `🔧 *Техническая информация:*\n\`${error.message}\``, {
         parse_mode: 'Markdown'
       });
     }
@@ -1034,25 +769,7 @@ process.on('SIGTERM', cleanUp);
     
     console.log('✅ Bot initialized successfully');
     console.log(`👑 Admin: ${ADMIN_ID || 'not set'}`);
-    console.log(`🌐 API: ${API_URL}`);
     console.log(`🗺 Map: ${MAP_URL}`);
-    
-    // Тест API
-    try {
-      const testResponse = await fetchWithRetry(`${API_URL}/health`, {}, 2, 1000);
-      console.log('✅ API health check OK');
-    } catch (error) {
-      console.warn('⚠️ API health check failed:', error.message);
-    }
-    
-    if (ADMIN_ID) {
-      console.log('🔍 Проверка связей при старте...');
-      const connections = await checkConnections();
-      console.log('📊 Результаты проверки:');
-      console.log(`   ${connections.database.status} ${connections.database.message}`);
-      console.log(`   ${connections.api.status} ${connections.api.message}`);
-      console.log(`   ${connections.bot.status} ${connections.bot.message}`);
-    }
     
   } catch (error) {
     console.error('❌ Ошибка инициализации бота:', error);
