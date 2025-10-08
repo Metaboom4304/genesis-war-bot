@@ -144,6 +144,129 @@ function generateAccessCode() {
 }
 
 // -----------------------------
+// Донаты и поддержка автора - НОВЫЙ ФУНКЦИОНАЛ
+// -----------------------------
+
+// Создание таблицы для донатов (запустите этот SQL в вашей БД)
+/*
+CREATE TABLE IF NOT EXISTS donations (
+  id SERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  amount DECIMAL(10,2) NOT NULL,
+  currency VARCHAR(10) DEFAULT 'TON',
+  transaction_hash VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS donations_user_id_idx ON donations(user_id);
+CREATE INDEX IF NOT EXISTS donations_created_at_idx ON donations(created_at);
+*/
+
+// Функция для записи доната
+async function recordDonation(userId, amount, currency = 'TON', transactionHash = null) {
+  try {
+    await pool.query(`
+      INSERT INTO donations (user_id, amount, currency, transaction_hash)
+      VALUES ($1, $2, $3, $4)
+    `, [userId, amount, currency, transactionHash]);
+    
+    console.log(`✅ Записан донат от пользователя ${userId}: ${amount} ${currency}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Ошибка записи доната:', error);
+    return false;
+  }
+}
+
+// Получение статистики донатов
+async function getDonationsStats() {
+  try {
+    const totalResult = await pool.query(`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount 
+      FROM donations
+    `);
+    const totalDonations = parseInt(totalResult.rows[0].count, 10);
+    const totalAmount = parseFloat(totalResult.rows[0].total_amount) || 0;
+    
+    const monthlyResult = await pool.query(`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount 
+      FROM donations 
+      WHERE created_at >= NOW() - INTERVAL '30 days'
+    `);
+    const monthlyDonations = parseInt(monthlyResult.rows[0].count, 10);
+    const monthlyAmount = parseFloat(monthlyResult.rows[0].total_amount) || 0;
+    
+    const recentResult = await pool.query(`
+      SELECT COUNT(*) as count
+      FROM donations 
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+    `);
+    const weeklyDonations = parseInt(recentResult.rows[0].count, 10);
+    
+    return {
+      totalDonations,
+      totalAmount,
+      monthlyDonations, 
+      monthlyAmount,
+      weeklyDonations
+    };
+  } catch (error) {
+    console.error('❌ Ошибка получения статистики донатов:', error);
+    return { 
+      totalDonations: 0, 
+      totalAmount: 0, 
+      monthlyDonations: 0, 
+      monthlyAmount: 0, 
+      weeklyDonations: 0 
+    };
+  }
+}
+
+// Получение списка последних донатов
+async function getRecentDonations(limit = 20) {
+  try {
+    const result = await pool.query(`
+      SELECT d.*, u.first_name, u.last_name, u.username
+      FROM donations d
+      LEFT JOIN users u ON d.user_id = u.id
+      ORDER BY d.created_at DESC 
+      LIMIT $1
+    `, [limit]);
+    
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Ошибка получения списка донатов:', error);
+    return [];
+  }
+}
+
+// Получение топа донатеров
+async function getTopDonors(limit = 10) {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.first_name,
+        u.last_name, 
+        u.username,
+        COUNT(d.id) as donation_count,
+        COALESCE(SUM(d.amount), 0) as total_amount
+      FROM users u
+      LEFT JOIN donations d ON u.id = d.user_id
+      WHERE d.id IS NOT NULL
+      GROUP BY u.id, u.first_name, u.last_name, u.username
+      ORDER BY total_amount DESC
+      LIMIT $1
+    `, [limit]);
+    
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Ошибка получения топа донатеров:', error);
+    return [];
+  }
+}
+
+// -----------------------------
 // Админ-функции
 // -----------------------------
 
@@ -271,7 +394,7 @@ async function getUsersList(limit = 50) {
   }
 }
 
-// Отправка админ-панели
+// Отправка админ-панели - ОБНОВЛЕНА С ДОНАТАМИ
 function sendAdminPanel(chatId) {
   const keyboard = {
     reply_markup: {
@@ -285,11 +408,14 @@ function sendAdminPanel(chatId) {
           { text: '🤖 Бот-API связь', callback_data: 'admin_bot_api' }
         ],
         [
-          { text: '🔑 Получить код', callback_data: 'get_code' },
-          { text: '🗺 Открыть карту', callback_data: 'open_map' }
+          { text: '💰 Донаты', callback_data: 'admin_donations' }, // НОВАЯ КНОПКА
+          { text: '🔑 Получить код', callback_data: 'get_code' }
         ],
         [
-          { text: '🐛 Тест API', callback_data: 'test_api' },
+          { text: '🗺 Открыть карту', callback_data: 'open_map' },
+          { text: '🐛 Тест API', callback_data: 'test_api' }
+        ],
+        [
           { text: '⬅️ Главное меню', callback_data: 'main_menu' }
         ]
       ]
@@ -418,6 +544,8 @@ bot.on('message', async (msg) => {
     });
   } else if (text === '🛠 Админ-панель' && isAdmin(userId)) {
     sendAdminPanel(chatId);
+  } else if (text === '❤️ Поддержать автора') {
+    await sendSupportMessage(chatId);
   }
 });
 
@@ -469,6 +597,8 @@ bot.on('callback_query', async (query) => {
           ]
         }
       });
+    } else if (data === 'support_author') {
+      await sendSupportMessage(chatId);
     }
     
     else if (data.startsWith('admin_')) {
@@ -590,6 +720,83 @@ bot.on('callback_query', async (query) => {
           }
         });
       }
+      else if (data === 'admin_donations') {
+        // НОВЫЙ ОБРАБОТЧИК ДЛЯ СТАТИСТИКИ ДОНАТОВ
+        const donationsStats = await getDonationsStats();
+        const recentDonations = await getRecentDonations(10);
+        const topDonors = await getTopDonors(5);
+        
+        let message = `💰 *Статистика донатов:*\n\n`;
+        message += `📈 Всего донатов: ${donationsStats.totalDonations}\n`;
+        message += `💵 Общая сумма: ${donationsStats.totalAmount.toFixed(2)} TON\n`;
+        message += `📅 За 30 дней: ${donationsStats.monthlyDonations} донатов\n`;
+        message += `💳 Сумма за 30 дней: ${donationsStats.monthlyAmount.toFixed(2)} TON\n`;
+        message += `🔥 За 7 дней: ${donationsStats.weeklyDonations} донатов\n\n`;
+        
+        message += `🏆 *Топ донатеров:*\n`;
+        if (topDonors.length === 0) {
+          message += `Пока нет донатов\n`;
+        } else {
+          topDonors.forEach((donor, index) => {
+            const username = donor.username ? `@${donor.username}` : `${donor.first_name} ${donor.last_name || ''}`;
+            message += `${index + 1}. ${username} - ${parseFloat(donor.total_amount).toFixed(2)} TON (${donor.donation_count} раз)\n`;
+          });
+        }
+        
+        message += `\n_Обновлено: ${new Date().toLocaleString('ru-RU')}_`;
+        
+        bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📋 Последние донаты', callback_data: 'admin_recent_donations' },
+                { text: '🔄 Обновить', callback_data: 'admin_donations' }
+              ],
+              [
+                { text: '📊 Общая статистика', callback_data: 'admin_stats' },
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
+              ]
+            ]
+          }
+        });
+      }
+      else if (data === 'admin_recent_donations') {
+        const recentDonations = await getRecentDonations(15);
+        
+        let message = `📋 *Последние 15 донатов:*\n\n`;
+        
+        if (recentDonations.length === 0) {
+          message += `Пока нет записей о донатах.`;
+        } else {
+          recentDonations.forEach((donation, index) => {
+            const username = donation.username ? `@${donation.username}` : `${donation.first_name} ${donation.last_name || ''}`;
+            const date = new Date(donation.created_at).toLocaleString('ru-RU');
+            message += `${index + 1}. ${username} - ${parseFloat(donation.amount).toFixed(2)} ${donation.currency} - ${date}\n`;
+          });
+        }
+        
+        message += `\n_Обновлено: ${new Date().toLocaleString('ru-RU')}_`;
+        
+        bot.editMessageText(message, {
+          chat_id: chatId,
+          message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📈 Статистика донатов', callback_data: 'admin_donations' },
+                { text: '🔄 Обновить', callback_data: 'admin_recent_donations' }
+              ],
+              [
+                { text: '⬅️ Назад', callback_data: 'main_menu' }
+              ]
+            ]
+          }
+        });
+      }
     }
   } catch (error) {
     console.error('❌ Ошибка обработки callback:', error);
@@ -605,10 +812,11 @@ bot.on('callback_query', async (query) => {
 // Вспомогательные функции
 // -----------------------------
 
-// Отправка главного меню
+// Отправка главного меню - ОБНОВЛЕНА С КНОПКОЙ ПОДДЕРЖКИ
 function sendMainMenu(chatId, userId) {
   const keyboardButtons = [
-    ['🔑 Получить код доступа', '🗺 Открыть карту']
+    ['🔑 Получить код доступа', '🗺 Открыть карту'],
+    ['❤️ Поддержать автора'] // ДОБАВЛЕНА КНОПКА ПОДДЕРЖКИ
   ];
   
   if (isAdmin(userId)) {
@@ -689,6 +897,33 @@ async function sendAccessCode(chatId, userId) {
       });
     }
   }
+}
+
+// Функция отправки сообщения о поддержке - НОВАЯ
+async function sendSupportMessage(chatId) {
+  const tonWallet = "UQBx2nHWPfb25983mjo1E7ljOBQscvquPiue1cLsIGzfURym";
+  const supportUrl = `https://tonkeeper.com/transfer/${tonWallet}`;
+  
+  const supportMessage = `💛 *Спасибо за желание поддержать проект!*\n\n` +
+                        `Для перевода TON используйте ссылку ниже. ` +
+                        `Она откроется в вашем TON-кошельке (Tonkeeper, MyTonWallet, Telegram Wallet и других).\n\n` +
+                        `*Адрес кошелька:* \`${tonWallet}\``;
+
+  await bot.sendMessage(chatId, supportMessage, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{
+          text: '💸 Отправить TON',
+          url: supportUrl
+        }],
+        [{
+          text: '⬅️ Назад в меню',
+          callback_data: 'main_menu'
+        }]
+      ]
+    }
+  });
 }
 
 // -----------------------------
