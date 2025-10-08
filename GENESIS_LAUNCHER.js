@@ -599,6 +599,26 @@ bot.on('callback_query', async (query) => {
       });
     } else if (data === 'support_author') {
       await sendSupportMessage(chatId);
+    } else if (data === 'copy_wallet') {
+      const tonWallet = "UQBx2nHWPfb25983mjo1E7ljOBQscvquPiue1cLsIGzfURym";
+      
+      await bot.answerCallbackQuery(query.id, { 
+        text: `Адрес скопирован: ${tonWallet}`,
+        show_alert: false 
+      });
+      
+      // Также отправляем сообщение с адресом для удобного копирования
+      await bot.sendMessage(chatId, `📋 *Адрес для поддержки:*\n\n\`${tonWallet}\`\n\nСкопируйте этот адрес и используйте в вашем TON-кошельке.`, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: '⬅️ Назад к поддержке',
+              callback_data: 'support_author'
+            }]
+          ]
+        }
+      });
     }
     
     else if (data.startsWith('admin_')) {
@@ -899,23 +919,39 @@ async function sendAccessCode(chatId, userId) {
   }
 }
 
-// Функция отправки сообщения о поддержке - НОВАЯ
+// Функция отправки сообщения о поддержке - ИСПРАВЛЕННАЯ С ССЫЛКАМИ
 async function sendSupportMessage(chatId) {
   const tonWallet = "UQBx2nHWPfb25983mjo1E7ljOBQscvquPiue1cLsIGzfURym";
-  const supportUrl = `https://tonkeeper.com/transfer/${tonWallet}`;
+  
+  // ПРАВИЛЬНЫЕ форматы ссылок для разных кошельков
+  const tonkeeperUrl = `https://app.tonkeeper.com/transfer/${tonWallet}`;
+  const tonhubUrl = `https://tonhub.com/transfer/${tonWallet}`;
+  const universalUrl = `ton://transfer/${tonWallet}`;
   
   const supportMessage = `💛 *Спасибо за желание поддержать проект!*\n\n` +
-                        `Для перевода TON используйте ссылку ниже. ` +
-                        `Она откроется в вашем TON-кошельке (Tonkeeper, MyTonWallet, Telegram Wallet и других).\n\n` +
-                        `*Адрес кошелька:* \`${tonWallet}\``;
+                        `Выберите ваш кошелек для перевода TON:\n\n` +
+                        `*Адрес кошелька:* \`${tonWallet}\`\n\n` +
+                        `_Скопируйте адрес выше, если ссылки не работают_`;
 
   await bot.sendMessage(chatId, supportMessage, {
     parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: [
         [{
-          text: '💸 Отправить TON',
-          url: supportUrl
+          text: '💸 Tonkeeper',
+          url: tonkeeperUrl
+        }],
+        [{
+          text: '🦄 Tonhub', 
+          url: tonhubUrl
+        }],
+        [{
+          text: '📱 Universal TON',
+          url: universalUrl
+        }],
+        [{
+          text: '📋 Копировать адрес',
+          callback_data: 'copy_wallet'
         }],
         [{
           text: '⬅️ Назад в меню',
